@@ -1,4 +1,65 @@
 // ============================================================
+// SCREEN STATE
+// Add one constant per screen. The string value just needs
+// to be unique — it's never shown to the player.
+// ============================================================
+const TITLE_SCREEN = "title.js";
+const LEVEL_ONE = "levelone.js";
+const LEVEL_TWO = "leveltwo.js"
+// SCREEN_C, SCREEN_D... add more here as you grow
+
+let currentScreen = TITLE_SCREEN;
+
+// goToScreen() is the ONLY function allowed to change currentScreen.
+// Keeping that in one place makes the app easy to reason about.
+function goToScreen(screen) {
+  currentScreen = screen;
+    if (screen === LEVEL_ONE || screen === LEVEL_TWO) loadLevel(screen);
+
+}
+
+
+// ============================================================
+// BUTTON HELPERS
+// Reused by every screen. isMouseOver() must use the exact
+// same x/y/w/h you passed to drawButton() for hit-testing
+// to line up with what's drawn.
+// ============================================================
+function drawButton(x, y, w, h, label) {
+  push();
+  rectMode(CENTER);
+  fill(isMouseOver(x, y, w, h) ? color(80, 80, 100) : color(40, 40, 60));
+  stroke(150);
+  rect(x, y, w, h, 8);
+  fill(255);
+  noStroke();
+  textAlign(CENTER, CENTER);
+  textSize(16);
+  text(label, x, y);
+  pop();
+}
+
+function isMouseOver(x, y, w, h) {
+  return (
+    mouseX > x - w / 2 && mouseX < x + w / 2 &&
+    mouseY > y - h / 2 && mouseY < y + h / 2
+  );
+}
+
+// ============================================================
+// CLICK HANDLING
+// Same dispatch pattern as draw(): check currentScreen, then
+// test the SAME coordinates used in the matching draw function.
+// ============================================================
+function mousePressed() {
+  if (currentScreen === TITLE_SCREEN) {
+    if (isMouseOver(width / 2, height / 2, 200, 50)) {
+      goToScreen(LEVEL_ONE);
+    }
+  }
+}
+
+// ============================================================
 // ============================================================
 
 // ------------------------------------------------------------
@@ -18,6 +79,14 @@ let camZoom = .8;
 const PLAYER_SPEED = 17; // bird
 let moveSpeed = PLAYER_SPEED;
 const INVINCIBLE_FRAMES = 90; // ADDED — was referenced but never defined
+
+// title screen
+
+let titleFrame1;
+let titleFrame2;
+let currentFrame = 0;
+let frameTimer = 0;
+const frameInterval = 0.6;
 
 // ------------------------------------------------------------
 // FISH SPRITE CONFIGURATION
@@ -193,6 +262,10 @@ let endArea;
 let keyTilesList = [];
 let tiles = [];
 
+let startArea2;
+let birdArea2;
+let fishArea2;
+
 let waterTiles = [];
 let grassImg;
 let groundImg;
@@ -273,6 +346,28 @@ const STATE_WIN = "win";
 const STATE_OVER = "over";
 let gameState = STATE_PLAY;
 
+const LEVELS = {
+  [LEVEL_ONE]: {
+    areas: [
+      { key: 'start', json: 'startArea', bg: 'startbg', bgSize: [3550, null] },
+      { key: 'bird',  json: 'birdArea' },
+      { key: 'fish',  json: 'fishArea', bg: 'fishareaBG', bgSize: [2150, 800], anchorRightOf: 'bird', shiftTiles: -37, anchorBelow: 'bird' },
+      { key: 'end',   json: 'endArea',  bg: 'endbg', anchorRightOf: 'bird', anchorBottom: true }, // ADDED anchorRightOf, no shiftTiles
+    ],
+    playerStart: { x: 4 * TILE_SIZE, y: 17 * TILE_SIZE },
+    buildWindZones: buildLevel1WindZones,
+  },
+  [LEVEL_TWO]: {
+    areas: [
+      { key: 'start', json: 'startArea2' },
+      { key: 'bird',  json: 'birdArea2' },
+      { key: 'fish',  json: 'fishArea2', anchorBelow: 'bird' },
+    ],
+    playerStart: { x: 4 * TILE_SIZE, y: 10 * TILE_SIZE },
+    buildWindZones: buildLevel2WindZones,
+  },
+};
+
 // ============================================================
 // preload()
 // ============================================================
@@ -283,7 +378,14 @@ function preload() {
   fishArea = loadJSON("data/fisharea.json");
   endArea = loadJSON("data/endarea.json");
 
+  //startArea2 = loadJSON("data/2startarea.json"); 
+ fishArea2 = loadJSON("data/2fisharea.json");
+  birdArea2 = loadJSON("data/2birdarea.json");
+
   fishSheet = loadImage("assets/images/fish.png");
+
+  titleFrame1 = loadImage('assets/images/Title frame1.png');
+  titleFrame2 = loadImage('assets/images/Title frame2.png');
 
   grassImg = loadImage("assets/images/grass.png");
   groundImg = loadImage("assets/images/ground.png");
@@ -329,6 +431,13 @@ function preload() {
   if (birdBGsound) {
     birdBGsound.setVolume(0.15);
   }
+
+  rawAssets = {
+    startArea, birdArea, fishArea, endArea,
+    //startArea2, 
+    birdArea2, fishArea2,
+    startbg, fishareaBG, endbg,
+  };
 }
 
 // ============================================================
@@ -337,134 +446,177 @@ function preload() {
 function setup() {
   createCanvas(800, 450);
   noStroke();
-  console.log(
-    "watersurfaccce loaded:",
-    waterSurfaceImg.width,
-    waterSurfaceImg.height,
-  );
-  WORLD_W =
-    TILE_SIZE *
-    (startArea.mapWidth +
-      birdArea.mapWidth +
-      fishArea.mapWidth +
-      endArea.mapWidth); // total world width in pixels
-  WORLD_H = TILE_SIZE * (birdArea.mapHeight + fishArea.mapHeight); // total world height in pixels
-  console.log("birdArea=", birdArea);
+  imageMode(CORNER);
 
   FISH_SPRITE.frameWidth = fishSheet.width / 2;
   FISH_SPRITE.frameHeight = fishSheet.height / 4;
-
   HUMAN_SPRITE.frameWidth = humanSheet.width / HUMAN_SPRITE.numFrames;
   HUMAN_SPRITE.frameHeight = humanSheet.height / 2;
-
   WIND_SPRITE.frameWidth = windImg.width / WIND_SPRITE.numFrames;
   WIND_SPRITE.frameHeight = windImg.height;
 
-  const tilesArray = birdArea.layers?.[0]?.tiles || [];
-  for (let i = 0; i < tilesArray.length; i++) {
-    const t = tilesArray[i];
-    tiles.push({ x: t.x, y: t.y, id: t.id });
-  }
+  if (birdBGsound) birdBGsound.setVolume(0.15);
 
-  // ADDED — sort solid/hazard/checkpoint tiles out of every layer
-  // and group checkpoint tiles into discrete zones.
-  buildTileCollision();
-
-  // Zone 1: human -> bird (has an actual ceiling — cave roof)
-windZones.push({
-  x: TILE_SIZE * (startArea.mapWidth - 2),
-  y: 0,
-  w: 13 * TILE_SIZE,
-  h: birdArea.mapHeight * TILE_SIZE,
-  fromForm: FORM_HUMAN,
-  transformTo: FORM_BIRD,
-  hasCeiling: true, // ADDED
-});
-
-// Zone 2: fish -> human (launch zone, no ceiling — fixed y offset too)
-const fishAreaOffsetY = TILE_SIZE * birdArea.mapHeight; // ✅ correct offset
-const zone2ShiftUp = 5 * TILE_SIZE; // tune this — how many tiles higher
-
-windZones.push({
-  x: TILE_SIZE * (startArea.mapWidth + birdArea.mapWidth - 37 + fishArea.mapWidth - 6),
-  y: fishAreaOffsetY - zone2ShiftUp,
-  w: 6 * TILE_SIZE,
-  h: (fishArea.mapHeight + endArea.mapHeight) * TILE_SIZE,
-  fromForm: FORM_FISH,
-  transformTo: FORM_HUMAN,
-  hasCeiling: false,
-});
-
-// Zone 3: end area — force fish -> human
-windZones.push({
-  x: TILE_SIZE * (startArea.mapWidth + birdArea.mapWidth),
-  y: TILE_SIZE * (birdArea.mapHeight - endArea.mapHeight / 5),
-  w: 5 * TILE_SIZE,
-  h: endArea.mapHeight / 5  * TILE_SIZE,
-  fromForm: FORM_FISH,
-  transformTo: FORM_HUMAN,
-  hasCeiling: false,
-});
-
-  // ADDED — remember the player's starting point as the fallback
-  // respawn location for before any checkpoint has been reached.
-  playerStart = { x: player.x, y: player.y };
-
-  // Start camera so player is visible
-  camX = player.x - width / 2;
-  camY = player.y - height / 2;
-  imageMode(CORNER);
-  // Uncomment to start music:
-  // music.loop();
+  // Everything else — WORLD_W/H, buildTileCollision(), windZones.push()×3,
+  // playerStart, camX/camY — is now handled inside loadLevel().
+  loadLevel(LEVEL_ONE);
 }
 
-function getAreaWorldBounds(jsonFile) {
-  if (jsonFile === startArea) {
-    return {
-      x: 0,
-      y: 0,
-      w: startArea.mapWidth * TILE_SIZE,
-      h: startArea.mapHeight * TILE_SIZE,
-    };
-  }
 
-  if (jsonFile === birdArea) {
-    return {
-      x: startArea.mapWidth * TILE_SIZE,
-      y: 0,
-      w: birdArea.mapWidth * TILE_SIZE,
-      h: birdArea.mapHeight * TILE_SIZE,
-    };
-  }
 
-  if (jsonFile === fishArea) {
-    return {
-      x: TILE_SIZE * (startArea.mapWidth + birdArea.mapWidth - 37),
-      y: TILE_SIZE * birdArea.mapHeight,
-      w: fishArea.mapWidth * TILE_SIZE,
-      h: fishArea.mapHeight * TILE_SIZE,
-    };
-  }
+let rawAssets = {}; // preload() fills this: rawAssets.birdArea2 = loadJSON(...)
+let levelAreas = []; // current level's computed areas, replaces startArea/birdArea/etc as globals
 
-  if (jsonFile === endArea) {
-    return {
-      x: TILE_SIZE * (startArea.mapWidth + birdArea.mapWidth),
-      y: TILE_SIZE * (birdArea.mapHeight - endArea.mapHeight),
-      w: endArea.mapWidth * TILE_SIZE,
-      h: endArea.mapHeight * TILE_SIZE,
-    };
-  }
+function computeAreaLayout(levelDef) {
+  const areas = [];
+  let cursorTiles = 0;
 
-  return null;
+  for (const def of levelDef.areas) {
+    const json = rawAssets[def.json];
+    let xTiles;
+
+    if (def.anchorRightOf) {
+      // ADDED — position relative to another area's right edge, not the running cursor
+      const target = areas.find(a => a.key === def.anchorRightOf);
+      if (target) {
+        xTiles = (target.bounds.x / TILE_SIZE + target.json.mapWidth) + (def.shiftTiles || 0);
+      } else {
+        console.warn(`anchorRightOf "${def.anchorRightOf}" not found — is it defined before "${def.key}"?`);
+        xTiles = cursorTiles + (def.shiftTiles || 0);
+      }
+    } else {
+      xTiles = cursorTiles + (def.shiftTiles || 0);
+    }
+
+    let yTiles = 0;
+    if (def.anchorBelow) {
+      const target = areas.find(a => a.key === def.anchorBelow);
+      if (target) {
+        yTiles = target.bounds.y / TILE_SIZE + target.json.mapHeight;
+      } else {
+        console.warn(`anchorBelow "${def.anchorBelow}" not found — is it defined before "${def.key}"?`);
+      }
+    } else if (def.anchorBottom) {
+      const bird = areas.find(a => a.key === 'bird');
+      yTiles = bird ? (bird.json.mapHeight - json.mapHeight) : 0;
+    }
+
+    areas.push({
+      key: def.key,
+      json,
+      bg: def.bg ? rawAssets[def.bg] : null,
+      bgSize: def.bgSize,
+      bounds: {
+        x: xTiles * TILE_SIZE,
+        y: yTiles * TILE_SIZE,
+        w: json.mapWidth * TILE_SIZE,
+        h: json.mapHeight * TILE_SIZE,
+      },
+    });
+
+    cursorTiles += json.mapWidth; // still tracked for areas that use plain sequential placement
+  }
+  return areas;
 }
 
-function shouldDrawArea(jsonFile) {
-  const bounds = getAreaWorldBounds(jsonFile);
+
+function loadLevel(levelId) {
+  const def = LEVELS[levelId];
+  stopAllGameSounds();
+
+  solidTiles = []; hazardTiles = []; checkpoints = [];
+  keyTilesList = []; keyMap = new Map(); keyTotal = 0; keyCollected = 0; portalUnlocked = false;
+  whirlpoolTiles = []; portalTiles = []; waterTiles = []; seaweedTiles = [];
+  windZones = [];
+  activeCheckpointIndex = -1; lastCheckpoint = null;
+  worldState = {}; // see below
+
+  levelAreas = computeAreaLayout(def);
+  WORLD_W = Math.max(...levelAreas.map(a => a.bounds.x + a.bounds.w));
+  WORLD_H = Math.max(...levelAreas.map(a => a.bounds.y + a.bounds.h));
+
+  const checkpointTiles = [], keyTiles = [];
+for (const area of levelAreas) {
+  processJsonLayers(area.json, checkpointTiles, keyTiles, area.bounds.x, area.bounds.y);
+}
+  checkpoints = groupCheckpointTiles(checkpointTiles);
+  keyTilesList = keyTiles;
+  keyTotal = keyTiles.length;
+  for (const k of keyTilesList) keyMap.set(getWorldTileKey(k.x, k.y), false);
+
+  windZones = def.buildWindZones ? def.buildWindZones(levelAreas) : [];
+
+  player.x = def.playerStart.x; player.y = def.playerStart.y;
+  player.vx = 0; player.vy = 0; player.form = FORM_HUMAN;
+  playerStart = { ...def.playerStart };
+
+  camX = constrain(player.x - width / 2, 0, WORLD_W - width);
+  camY = constrain(player.y - height / 2, 0, WORLD_H - height);
+  gameState = STATE_PLAY;
+}
+
+function findArea(levelAreas, key) {
+  return levelAreas.find(a => a.key === key);
+}
+
+function buildLevel1WindZones(levelAreas) {
+  const start = findArea(levelAreas, 'start');
+  const bird  = findArea(levelAreas, 'bird');
+  const fish  = findArea(levelAreas, 'fish');
+  const end   = findArea(levelAreas, 'end');
+  const zones = [];
+
+  // Zone 1: human -> bird (ceiling)
+  zones.push({
+    x: start.bounds.x + start.bounds.w - 2 * TILE_SIZE,
+    y: 0,
+    w: 13 * TILE_SIZE,
+    h: bird.bounds.h,
+    fromForm: FORM_HUMAN,
+    transformTo: FORM_BIRD,
+    hasCeiling: true,
+  });
+
+  // Zone 2: fish -> human (launch zone)
+  const zone2ShiftUp = 5 * TILE_SIZE;
+  zones.push({
+    x: fish.bounds.x + fish.bounds.w - 6 * TILE_SIZE,
+    y: fish.bounds.y - zone2ShiftUp,
+    w: 6 * TILE_SIZE,
+    h: fish.bounds.h + end.bounds.h,
+    fromForm: FORM_FISH,
+    transformTo: FORM_HUMAN,
+    hasCeiling: false,
+  });
+
+  // Zone 3: end area — force fish -> human
+  zones.push({
+    x: end.bounds.x,
+    y: bird.bounds.h - end.bounds.h / 5,
+    w: 5 * TILE_SIZE,
+    h: (end.bounds.h / 5) / TILE_SIZE * TILE_SIZE,
+    fromForm: FORM_FISH,
+    transformTo: FORM_HUMAN,
+    hasCeiling: false,
+  });
+
+  return zones;
+}
+
+function buildLevel2WindZones(levelAreas) {
+  // Placeholder until level 2's zones are tuned — return none for now
+  // so loadLevel(LEVEL_TWO) doesn't crash on an undefined function.
+  return [];
+}
+
+
+function shouldDrawArea(area) {
+  const bounds = area.bounds;
   if (!bounds) return false;
 
-  const visibleW = width / (camZoom); // ~1143px at camZoom 0.7
-  const visibleH = height / (camZoom); // ~643px at camZoom 0.7
-  const margin = 2 * TILE_SIZE; // small buffer on top of the real viewport
+  const visibleW = width / camZoom;
+  const visibleH = height / camZoom;
+  const margin = 2 * TILE_SIZE;
 
   const viewLeft = camX - margin;
   const viewRight = camX + visibleW + margin;
@@ -480,7 +632,8 @@ function shouldDrawArea(jsonFile) {
 }
 
 function drawInstructions() {
-  let inStart = player.x < TILE_SIZE * startArea.mapWidth;
+  const start = findArea(levelAreas, 'start');
+  const inStart = start && player.x < start.bounds.x + start.bounds.w;
   if (!inStart) return;
 
   push();
@@ -502,32 +655,24 @@ function drawInstructions() {
 
 function draw() {
   background(20);
-  console.log(player.x / 50, player.y / 50); // for troubleshooting
+  if (currentScreen === TITLE_SCREEN) drawTitleScreen();
+  else if (currentScreen === LEVEL_ONE || currentScreen === LEVEL_TWO) drawLevelScreen();
+}
+
+function drawLevelScreen() {
+  console.log(player.x / 50, player.y / 50);
 
   updateCamera();
-  updateInvincibility(); // ADDED — ticks down player.invincibleTimer
+  updateInvincibility();
 
-  // Everything inside push/pop is drawn in world coordinates
   push();
   let screenOffsetX = Math.round((width / 2) * (1 - camZoom) - camX * camZoom);
   let screenOffsetY = Math.round((height / 2) * (1 - camZoom) - camY * camZoom);
-
   translate(screenOffsetX, screenOffsetY);
   scale(camZoom);
-  if (shouldDrawArea(startArea)) {
-    drawTiles(startArea);
-  }
 
-  if (shouldDrawArea(birdArea)) {
-    drawTiles(birdArea);
-  }
-
-  if (shouldDrawArea(fishArea)) {
-    drawTiles(fishArea);
-  }
-
-  if (shouldDrawArea(endArea)) {
-    drawTiles(endArea);
+  for (const area of levelAreas) {
+    if (shouldDrawArea(area)) drawTiles(area);
   }
 
   if (gameState === STATE_PLAY) {
@@ -535,34 +680,21 @@ function draw() {
     handleInput();
     updateHumanBGSound();
     updateBirdBGSound();
-    updateWalkingSound(); 
-    updateFlappingSound(); 
-    updateFishAreaSound(); // NEW
+    updateWalkingSound();
+    updateFlappingSound();
+    updateFishAreaSound();
 
     checkWindZones();
-    checkWaterTransform(); 
-    enforceLocationForm(); 
-
+    checkWaterTransform();
+    enforceLocationForm();
 
     whirlpoolTimer++;
-    if (whirlpoolTimer >= WHIRLPOOL_SPRITE.animSpeed) {
-      whirlpoolTimer = 0;
-      whirlpoolFrame = (whirlpoolFrame + 1) % WHIRLPOOL_SPRITE.numFrames;
-    }
-
+    if (whirlpoolTimer >= WHIRLPOOL_SPRITE.animSpeed) { whirlpoolTimer = 0; whirlpoolFrame = (whirlpoolFrame + 1) % WHIRLPOOL_SPRITE.numFrames; }
     windTimer++;
-    if (windTimer >= WIND_SPRITE.animSpeed) {
-      windTimer = 0;
-      windFrame = (windFrame + 1) % WIND_SPRITE.numFrames;
-    }
-
+    if (windTimer >= WIND_SPRITE.animSpeed) { windTimer = 0; windFrame = (windFrame + 1) % WIND_SPRITE.numFrames; }
     runeTimer++;
-    if (runeTimer >= RUNE_SPRITE.animSpeed) {
-     runeTimer = 0;
-      runeFrame = (runeFrame + 1) % RUNE_SPRITE.numFrames;
-    }
+    if (runeTimer >= RUNE_SPRITE.animSpeed) { runeTimer = 0; runeFrame = (runeFrame + 1) % RUNE_SPRITE.numFrames; }
 
-    // ADDED — tile physics: solid blockage, hazards, checkpoints
     resolveSolidCollisions();
     checkWhirlpools();
     checkKeys();
@@ -570,21 +702,17 @@ function draw() {
     checkHazardCollisions();
     checkCheckpoints();
 
-    drawWindZones(); 
-
+    drawWindZones();
     animateCharacter();
     drawPlayer();
 
-    // ADDED: draw fish area overlay on top of everything (world coordinates)
-    if (fishareaOverlay) {
-      const fishAreaOffsetX =
-        TILE_SIZE * (startArea.mapWidth + birdArea.mapWidth - 37);
-      const fishAreaOffsetY = TILE_SIZE * birdArea.mapHeight;
-      image(fishareaOverlay, fishAreaOffsetX, fishAreaOffsetY, fishArea.mapWidth * TILE_SIZE, 800);
+    const fish = findArea(levelAreas, 'fish');
+    if (fishareaOverlay && fish) {
+      image(fishareaOverlay, fish.bounds.x, fish.bounds.y, fish.bounds.w, 800);
     }
   }
 
-  pop(); // restore screen coordinates
+  pop();
   drawKeyHUD();
   drawInstructions();
   if (gameState === STATE_WIN && level1MessageImg) {
@@ -809,24 +937,17 @@ function updateFishAreaSound() {
 function updateFlappingSound() {
   if (!flappingsound) return;
 
-  const birdBounds = getAreaWorldBounds(birdArea);
-  const inBirdArea =
-    player.x >= birdBounds.x && player.x < birdBounds.x + birdBounds.w;
+  const bird = findArea(levelAreas, 'bird'); // ADDED
+  if (!bird) return; // ADDED — guard in case levelAreas isn't populated yet
 
-  const isFlapping = keyIsDown(87); // upward
-  const shouldPlay =
-    player.form === FORM_BIRD &&
-    inBirdArea &&
-    (player.isMoving || isFlapping); // forward/backward/upward
+  const inBirdArea = player.x >= bird.bounds.x && player.x < bird.bounds.x + bird.bounds.w;
+  const isFlapping = keyIsDown(87);
+  const shouldPlay = player.form === FORM_BIRD && inBirdArea && (player.isMoving || isFlapping);
 
   if (shouldPlay) {
-    if (!flappingsound.isPlaying()) {
-      flappingsound.loop();
-    }
+    if (!flappingsound.isPlaying()) flappingsound.loop();
   } else {
-    if (flappingsound.isPlaying()) {
-      flappingsound.stop();
-    }
+    if (flappingsound.isPlaying()) flappingsound.stop();
   }
 }
 
@@ -893,23 +1014,17 @@ function animateCharacter() {
 
 
 function enforceLocationForm() {
-  // Touching water always means fish — overrides everything else.
   if (playerInWater()) {
-    if (player.form !== FORM_FISH) {
-      player.form = FORM_FISH;
-    }
+    if (player.form !== FORM_FISH) player.form = FORM_FISH;
     return;
   }
 
-  // Inside bird-area airspace means bird — but only within its actual
-  // x AND y bounds, since fishArea's x-range overlaps the last 33
-  // tiles of birdArea's x-range.
-  const birdMinX = TILE_SIZE * startArea.mapWidth;
-  const birdMaxX = birdMinX + TILE_SIZE * birdArea.mapWidth;
-  const birdMaxY = TILE_SIZE * birdArea.mapHeight;
+  const bird = findArea(levelAreas, 'bird');
+  if (!bird) return;
 
   const inBirdAreaBounds =
-    player.x >= birdMinX && player.x < birdMaxX && player.y < birdMaxY;
+    player.x >= bird.bounds.x && player.x < bird.bounds.x + bird.bounds.w &&
+    player.y < bird.bounds.y + bird.bounds.h;
 
   if (inBirdAreaBounds && player.form !== FORM_BIRD) {
     player.form = FORM_BIRD;
@@ -1247,7 +1362,8 @@ function resolveCircleRect(p, rect) {
 function checkHazardCollisions() {
   if (player.invincible) return;
 
-  if (player.x < TILE_SIZE * startArea.mapWidth && player.y > 30 * TILE_SIZE) {
+  const start = findArea(levelAreas, 'start');
+  if (start && player.x < start.bounds.x + start.bounds.w && player.y > 30 * TILE_SIZE) {
     respawnFromHazard();
     return;
   }
@@ -1255,10 +1371,7 @@ function checkHazardCollisions() {
   for (const t of hazardTiles) {
     const closestX = constrain(player.x, t.x, t.x + t.w);
     const closestY = constrain(player.y, t.y, t.y + t.h);
-    const d = dist(player.x, player.y, closestX, closestY);
-
-    if (d < player.r) {
-      // Respawn the player at the nearest checkpoint (no life loss)
+    if (dist(player.x, player.y, closestX, closestY) < player.r) {
       respawnFromHazard();
       break;
     }
@@ -1486,277 +1599,126 @@ for (const cp of checkpoints) {
   checkpointLeftmost.add(tileX + "," + Math.round(cp.y / TILE_SIZE));
 }
 
-function drawTiles(jsonFile) {
+function drawTiles(area) {
+  const jsonFile = area.json;
+  const mapXOffset = area.bounds.x;
+  const mapYOffset = area.bounds.y;
   const layers = jsonFile.layers;
-  let rockPositions = null;
+  let rockPositions = new Set();
 
-  rockPositions = new Set();
   for (const rockLayer of layers) {
     if (rockLayer.name === "rock") {
-      for (const tile of rockLayer.tiles) {
-        rockPositions.add(`${tile.x},${tile.y}`);
-      }
+      for (const tile of rockLayer.tiles) rockPositions.add(`${tile.x},${tile.y}`);
     }
   }
 
-  // First pass: draw only water layers
+  // First pass: water
   for (let l = layers.length - 1; l > -1; l--) {
     const layer = layers[l];
     if (layer.name !== "water") continue;
-
-    for (let i = 0; i < layer.tiles.length; i++) {
-      let t = layer.tiles[i];
+    for (const t of layer.tiles) {
       push();
-      let mapXOffset = 0;
-      let mapYOffset = 0;
-
-      if (jsonFile == startArea) {
-        //mapYOffset = TILE_SIZE * 5; // shift down to bird area level
-      }
-
-      if (jsonFile == birdArea) {
-        mapXOffset = TILE_SIZE * startArea.mapWidth;
-        mapYOffset = 0;
-      }
-      if (jsonFile == fishArea) {
-        mapXOffset = TILE_SIZE * (startArea.mapWidth + birdArea.mapWidth - 37);
-        mapYOffset = TILE_SIZE * birdArea.mapHeight;
-      }
-
-      if (jsonFile == endArea) {
-        mapXOffset = TILE_SIZE * (startArea.mapWidth + birdArea.mapWidth);
-        mapYOffset = TILE_SIZE * (birdArea.mapHeight - endArea.mapHeight);
-      }
-
-      let x = t.x * TILE_SIZE + mapXOffset;
-      let y = t.y * TILE_SIZE + mapYOffset;
+      const x = t.x * TILE_SIZE + mapXOffset;
+      const y = t.y * TILE_SIZE + mapYOffset;
       fill(tileColor(layer.name, t.id));
       noStroke();
       rect(x, y, TILE_SIZE, TILE_SIZE);
       pop();
     }
   }
-  if (jsonFile === startArea && startbg) {
-    image(startbg, 0, 0, 3550, startArea.mapHeight * TILE_SIZE);
+
+  if (area.key === 'start' && area.bg) {
+    image(area.bg, mapXOffset, mapYOffset, area.bgSize?.[0] ?? area.bounds.w, area.bgSize?.[1] ?? area.bounds.h);
   }
-  // Draw background image for fish area after water but before other tiles
-  if (jsonFile === fishArea && fishareaBG) {
-    const fishAreaOffsetX =
-      TILE_SIZE * (startArea.mapWidth + birdArea.mapWidth - 37);
-    const fishAreaOffsetY = TILE_SIZE * birdArea.mapHeight;
-    image(fishareaBG, fishAreaOffsetX, fishAreaOffsetY, 2150, 800);
+  if (area.key === 'fish' && area.bg) {
+    image(area.bg, mapXOffset, mapYOffset, area.bgSize?.[0] ?? area.bounds.w, area.bgSize?.[1] ?? area.bounds.h);
   }
-  if (jsonFile === endArea && endbg) {
-    image(endbg, TILE_SIZE * (startArea.mapWidth + birdArea.mapWidth), TILE_SIZE * (birdArea.mapHeight - endArea.mapHeight), endArea.mapWidth * TILE_SIZE, endArea.mapHeight * TILE_SIZE);
+  if (area.key === 'end' && area.bg) {
+    image(area.bg, mapXOffset, mapYOffset, area.bounds.w, area.bounds.h);
   }
 
-  // Second pass: draw all non-water layers
-  // For birdArea, draw the bg green layer first, then the cavebg image,
-  // then all remaining non-water layers so cavebg stays under the rest.
-  if (jsonFile === birdArea && cavebg) {
-    const mapXOffset = TILE_SIZE * startArea.mapWidth;
-    const mapYOffset = 0;
-
-    // Draw bg green tiles first so cavebg can sit above them.
+  // Bird area: bg green + cavebg, drawn before the rest
+  if (area.key === 'bird' && cavebg) {
     for (let l = layers.length - 1; l > -1; l--) {
       const layer = layers[l];
       if (layer.name !== "bg green") continue;
-
-      for (let i = 0; i < layer.tiles.length; i++) {
-        const t = layer.tiles[i];
+      for (const t of layer.tiles) {
         const x = t.x * TILE_SIZE + mapXOffset;
         const y = t.y * TILE_SIZE + mapYOffset;
         fill(tileColor(layer.name, t.id));
         rect(x, y, TILE_SIZE, TILE_SIZE);
       }
     }
-
-    //Draw cavebg using its original dimensions, aligned to the
-    // top-right corner of the birdArea section.
-    const fishAreaStartX =
-      TILE_SIZE * (startArea.mapWidth + birdArea.mapWidth - 37);
-    const buffer = -7 * TILE_SIZE; // small gap before fishArea begins
-
+    const fishArea = findArea(levelAreas, 'fish');
+    const fishAreaStartX = fishArea ? fishArea.bounds.x : (mapXOffset + area.bounds.w);
+    const buffer = -7 * TILE_SIZE;
     const caveX = fishAreaStartX - buffer - cavebg.width;
-    const caveY = mapYOffset;
-
-    image(cavebg, caveX, caveY);
+    image(cavebg, caveX, mapYOffset);
   }
 
   for (let l = layers.length - 1; l > -1; l--) {
-  const layer = layers[l];
-  if (layer.name === "water") continue;
-  if (layer.name === "bg green") continue;      // ✅ now applies everywhere
-  if (layer.name === "background") continue;     // ✅ now applies everywhere
-  
+    const layer = layers[l];
+    if (layer.name === "water") continue;
+    if (layer.name === "bg green") continue;
+    if (layer.name === "background") continue;
+
     let spikePositions = null;
-    if (jsonFile === birdArea && layer.name === "spikes") {
-      spikePositions = new Set(
-        layer.tiles.map((tile) => `${tile.x},${tile.y}`),
-      );
+    if (area.key === 'bird' && layer.name === "spikes") {
+      spikePositions = new Set(layer.tiles.map((tile) => `${tile.x},${tile.y}`));
     }
-    for (let i = 0; i < layer.tiles.length; i++) {
-      let t = layer.tiles[i];
 
+    for (const t of layer.tiles) {
       push();
+      const x = t.x * TILE_SIZE + mapXOffset;
+      const y = t.y * TILE_SIZE + mapYOffset;
 
-      // drawing map
-
-      let mapXOffset = 0; // where the json is in relation to 0,0
-      let mapYOffset = 0;
-
-      if (jsonFile === startArea) {
-        //mapYOffset = TILE_SIZE * 5;
-      }
-
-      if (jsonFile === birdArea) {
-        mapXOffset = TILE_SIZE * startArea.mapWidth;
-        mapYOffset = 0;
-      }
-      if (jsonFile === fishArea) {
-        mapXOffset = TILE_SIZE * (startArea.mapWidth + birdArea.mapWidth - 37);
-        mapYOffset = TILE_SIZE * birdArea.mapHeight;
-      }
-
-      if (jsonFile === endArea) {
-        mapXOffset = TILE_SIZE * (startArea.mapWidth + birdArea.mapWidth);
-        mapYOffset = TILE_SIZE * (birdArea.mapHeight - endArea.mapHeight);
-      }
-
-      let x = t.x * TILE_SIZE + mapXOffset;
-      let y = t.y * TILE_SIZE + mapYOffset;
-
-      // If this is a key tile and it has been collected, skip drawing it
       if (layer.name === KEY_LAYER) {
         const mapKey = getWorldTileKey(x, y);
-        if (keyMap.get(mapKey)) {
-          pop();
-          continue;
-        }
-      }
-
-      if (layer.name === KEY_LAYER) {
+        if (keyMap.get(mapKey)) { pop(); continue; }
         if (runeSheet) {
-          let sx = runeFrame * RUNE_SPRITE.frameWidth;
-          let sy = 0;
-          let dw = RUNE_SPRITE.frameWidth * RUNE_SPRITE.scale;
-          let dh = RUNE_SPRITE.frameHeight * RUNE_SPRITE.scale;
-          push();
+          const sx = runeFrame * RUNE_SPRITE.frameWidth;
+          const dw = RUNE_SPRITE.frameWidth * RUNE_SPRITE.scale;
+          const dh = RUNE_SPRITE.frameHeight * RUNE_SPRITE.scale;
           imageMode(CENTER);
-          image(
-            runeSheet,
-            x + TILE_SIZE / 2,
-            y + TILE_SIZE / 2,
-            dw,
-            dh,
-            sx,
-            sy,
-            RUNE_SPRITE.frameWidth,
-            RUNE_SPRITE.frameHeight,
-          );
-          pop();
+          image(runeSheet, x + TILE_SIZE / 2, y + TILE_SIZE / 2, dw, dh, sx, 0, RUNE_SPRITE.frameWidth, RUNE_SPRITE.frameHeight);
         }
       } else if (layer.name === WHIRLPOOL_LAYER) {
         if (whirlpoolImg) {
-          let frameW = whirlpoolImg.width / WHIRLPOOL_SPRITE.numFrames;
-          let frameH = whirlpoolImg.height;
-
-          let sx = whirlpoolFrame * frameW;
-          let sy = 0;
-
-          push();
+          const frameW = whirlpoolImg.width / WHIRLPOOL_SPRITE.numFrames;
+          const frameH = whirlpoolImg.height;
+          const sx = whirlpoolFrame * frameW;
           imageMode(CENTER);
-          // Anchor coordinates safely to the center of the tile
           translate(x + TILE_SIZE / 2, y + TILE_SIZE / 2);
-          image(
-            whirlpoolImg,
-            0,
-            0,
-            TILE_SIZE * WHIRLPOOL_SPRITE.scale,
-            TILE_SIZE * WHIRLPOOL_SPRITE.scale,
-            sx,
-            sy,
-            frameW,
-            frameH,
-          );
-          pop();
+          image(whirlpoolImg, 0, 0, TILE_SIZE * WHIRLPOOL_SPRITE.scale, TILE_SIZE * WHIRLPOOL_SPRITE.scale, sx, 0, frameW, frameH);
         } else {
-          // Decorative structural fallback loop
           fill(tileColor(layer.name, t.id));
           rect(x, y, TILE_SIZE, TILE_SIZE, TILE_SIZE * 0.25);
           fill(10, 50, 120, 160);
           ellipse(x + TILE_SIZE / 2, y + TILE_SIZE / 2, TILE_SIZE * 0.6);
         }
-      } else if (jsonFile === fishArea && layer.name === "sand") {
-        if (sandImg) {
-          image(sandImg, x, y, TILE_SIZE, TILE_SIZE);
-        } else {
-          fill(tileColor(layer.name, t.id));
-          rect(x, y, TILE_SIZE, TILE_SIZE);
-        }
-      } else if (jsonFile === fishArea && layer.name === "rock") {
-        if (sandrockImg) {
-          image(sandrockImg, x, y, TILE_SIZE, TILE_SIZE);
-        } else {
-          fill(tileColor(layer.name, t.id));
-          rect(x, y, TILE_SIZE, TILE_SIZE);
-        }
-      } else if (
-        (jsonFile === birdArea ||
-          jsonFile === startArea ||
-          jsonFile === endArea) &&
-        layer.name === "rock"
-      ) {
-        if (rockImg) {
-          image(rockImg, x, y, TILE_SIZE, TILE_SIZE);
-        } else {
-          fill(tileColor(layer.name, t.id));
-          rect(x, y, TILE_SIZE, TILE_SIZE);
-        }
+      } else if (area.key === 'fish' && layer.name === "sand") {
+        sandImg ? image(sandImg, x, y, TILE_SIZE, TILE_SIZE) : (fill(tileColor(layer.name, t.id)), rect(x, y, TILE_SIZE, TILE_SIZE));
+      } else if (area.key === 'fish' && layer.name === "rock") {
+        sandrockImg ? image(sandrockImg, x, y, TILE_SIZE, TILE_SIZE) : (fill(tileColor(layer.name, t.id)), rect(x, y, TILE_SIZE, TILE_SIZE));
+      } else if ((area.key === 'bird' || area.key === 'start' || area.key === 'end') && layer.name === "rock") {
+        rockImg ? image(rockImg, x, y, TILE_SIZE, TILE_SIZE) : (fill(tileColor(layer.name, t.id)), rect(x, y, TILE_SIZE, TILE_SIZE));
       } else if (layer.name === "background rock") {
-        if (bgRockImg) {
-          image(bgRockImg, x, y, TILE_SIZE, TILE_SIZE);
-        } else {
-          fill(tileColor(layer.name, t.id));
-          rect(x, y, TILE_SIZE, TILE_SIZE);
-        }
-        } else if (layer.name === "background sky") {
-          fill(tileColor(layer.name, t.id));
-          rect(x, y, TILE_SIZE, TILE_SIZE);
-         } else if (layer.name === "barrier") {
-          fill(0, 0, 0, 0);
-          rect(x, y, TILE_SIZE, TILE_SIZE);
-        
-      
+        bgRockImg ? image(bgRockImg, x, y, TILE_SIZE, TILE_SIZE) : (fill(tileColor(layer.name, t.id)), rect(x, y, TILE_SIZE, TILE_SIZE));
+      } else if (layer.name === "background sky") {
+        fill(tileColor(layer.name, t.id));
+        rect(x, y, TILE_SIZE, TILE_SIZE);
+      } else if (layer.name === "barrier") {
+        fill(0, 0, 0, 0);
+        rect(x, y, TILE_SIZE, TILE_SIZE);
       } else if (layer.name === "grass") {
-        if (grassImg) {
-          image(grassImg, x, y, TILE_SIZE, TILE_SIZE);
-        } else {
-          fill(tileColor(layer.name, t.id));
-          rect(x, y, TILE_SIZE, TILE_SIZE);
-        }
+        grassImg ? image(grassImg, x, y, TILE_SIZE, TILE_SIZE) : (fill(tileColor(layer.name, t.id)), rect(x, y, TILE_SIZE, TILE_SIZE));
       } else if (layer.name === "ground") {
-        if (groundImg) {
-          image(groundImg, x, y, TILE_SIZE, TILE_SIZE);
-        } else {
-          fill(tileColor(layer.name, t.id));
-          rect(x, y, TILE_SIZE, TILE_SIZE);
-        }
+        groundImg ? image(groundImg, x, y, TILE_SIZE, TILE_SIZE) : (fill(tileColor(layer.name, t.id)), rect(x, y, TILE_SIZE, TILE_SIZE));
       } else if (layer.name === "bark") {
-        if (barkImg) {
-          image(barkImg, x, y, TILE_SIZE, TILE_SIZE);
-        } else {
-          fill(tileColor(layer.name, t.id));
-          rect(x, y, TILE_SIZE, TILE_SIZE);
-        }
+        barkImg ? image(barkImg, x, y, TILE_SIZE, TILE_SIZE) : (fill(tileColor(layer.name, t.id)), rect(x, y, TILE_SIZE, TILE_SIZE));
       } else if (layer.name === "water surface") {
-        if (waterSurfaceImg) {
-          image(waterSurfaceImg, x, y, TILE_SIZE, TILE_SIZE);
-        } else {
-          fill(tileColor(layer.name, t.id));
-          rect(x, y, TILE_SIZE, TILE_SIZE);
-        }
-      } else if (jsonFile === birdArea && layer.name === "spikes") {
+        waterSurfaceImg ? image(waterSurfaceImg, x, y, TILE_SIZE, TILE_SIZE) : (fill(tileColor(layer.name, t.id)), rect(x, y, TILE_SIZE, TILE_SIZE));
+      } else if (area.key === 'bird' && layer.name === "spikes") {
         const leftNeighbor = spikePositions.has(`${t.x - 1},${t.y}`);
         const rightNeighbor = spikePositions.has(`${t.x + 1},${t.y}`);
         const rockAbove = rockPositions.has(`${t.x},${t.y - 1}`);
@@ -1765,74 +1727,46 @@ function drawTiles(jsonFile) {
         const rockBelow = rockPositions.has(`${t.x},${t.y + 1}`);
 
         let spikeImg = spike3Img;
-        if (leftNeighbor) {
-          spikeImg = spike2Img;
-        } else if (rightNeighbor) {
-          spikeImg = spike1Img;
-        } else {
+        if (leftNeighbor) spikeImg = spike2Img;
+        else if (rightNeighbor) spikeImg = spike1Img;
+        else {
           const posHash = (t.x + t.y * 7) % 2;
-          if (rockAbove) {
-            spikeImg = posHash === 0 ? spike3Img : spike4Img;
-          } else {
-            spikeImg = posHash === 0 ? spike4Img : spike3Img;
-          }
+          spikeImg = rockAbove ? (posHash === 0 ? spike3Img : spike4Img) : (posHash === 0 ? spike4Img : spike3Img);
         }
 
         let rotation = 0;
         if (!rockBelow) {
-          if (rockAbove) {
-            rotation = PI;
-          } else if (rockLeft) {
-            rotation = HALF_PI;
-          } else if (rockRight) {
-            rotation = -HALF_PI;
-          }
+          if (rockAbove) rotation = PI;
+          else if (rockLeft) rotation = HALF_PI;
+          else if (rockRight) rotation = -HALF_PI;
         }
 
         if (spikeImg) {
-          push();
           translate(x + TILE_SIZE / 2, y + TILE_SIZE / 2);
           rotate(rotation);
           imageMode(CENTER);
           image(spikeImg, 0, 0, TILE_SIZE, TILE_SIZE);
           imageMode(CORNER);
-          pop();
         } else {
           fill(tileColor(layer.name, t.id));
           rect(x, y, TILE_SIZE, TILE_SIZE);
         }
       } else if (layer.name === "seaweed") {
-        if (seaweedImg) {
-          image(seaweedImg, x, y, TILE_SIZE, TILE_SIZE);
-        } else {
-          fill(tileColor(layer.name, t.id));
-          rect(x, y, TILE_SIZE, TILE_SIZE);
-        }
+        seaweedImg ? image(seaweedImg, x, y, TILE_SIZE, TILE_SIZE) : (fill(tileColor(layer.name, t.id)), rect(x, y, TILE_SIZE, TILE_SIZE));
       } else if (GATE_LAYERS[layer.name] !== undefined) {
-  const requiredKeys = GATE_LAYERS[layer.name];
-  const isOpen = keyCollected >= requiredKeys;
-
-  if (!isOpen) {
-    // Visible while locked — swap in a real sprite/texture here if you have one
-    image(sandrockImg, x, y, TILE_SIZE, TILE_SIZE);
-  }
-  // fully skip drawing once open — it's gone
-} else if (layer.name === PORTAL_LAYER) {
-        const portalImg = keyCollected >= REQUIRED_PORTAL_KEYS ? portalOpenImg : portalClosedImg;
-        if (portalImg) {
-          const portalTilesInLayer = layer.tiles;
-          const portalMinX = Math.min(...portalTilesInLayer.map((tile) => tile.x));
-          const portalMaxX = Math.max(...portalTilesInLayer.map((tile) => tile.x));
-          const portalMinY = Math.min(...portalTilesInLayer.map((tile) => tile.y));
-          const portalMaxY = Math.max(...portalTilesInLayer.map((tile) => tile.y));
-
-          const portalWorldX = portalMinX * TILE_SIZE + mapXOffset;
-          const portalWorldY = portalMinY * TILE_SIZE + mapYOffset;
-          const portalWorldW = (portalMaxX - portalMinX + 1) * TILE_SIZE;
-          const portalWorldH = (portalMaxY - portalMinY + 1) * TILE_SIZE;
-
+        const isOpen = keyCollected >= GATE_LAYERS[layer.name];
+        if (!isOpen) image(sandrockImg, x, y, TILE_SIZE, TILE_SIZE);
+      } else if (layer.name === PORTAL_LAYER) {
+        const pImg = keyCollected >= REQUIRED_PORTAL_KEYS ? portalOpenImg : portalClosedImg;
+        if (pImg) {
+          const tiles = layer.tiles;
+          const minX = Math.min(...tiles.map(tt => tt.x));
+          const maxX = Math.max(...tiles.map(tt => tt.x));
+          const minY = Math.min(...tiles.map(tt => tt.y));
+          const maxY = Math.max(...tiles.map(tt => tt.y));
           imageMode(CORNER);
-          image(portalImg, portalWorldX, portalWorldY, portalWorldW, portalWorldH);
+          image(pImg, minX * TILE_SIZE + mapXOffset, minY * TILE_SIZE + mapYOffset,
+            (maxX - minX + 1) * TILE_SIZE, (maxY - minY + 1) * TILE_SIZE);
           pop();
           continue;
         } else {
@@ -1840,17 +1774,13 @@ function drawTiles(jsonFile) {
           rect(x, y, TILE_SIZE, TILE_SIZE);
         }
       } else if (layer.name === CHECKPOINT_LAYER) {
-        // Flag only on the leftmost tile of each checkpoint zone
         for (const cp of checkpoints) {
           if (abs(x - cp.x) < 1 && abs(y - cp.y) < 1) {
-           const flagW = TILE_SIZE * 1.2;   // tune to taste
-           const flagH = TILE_SIZE * 2.2;   // tune to taste — covers pole + flag height
-
-          push();
-          imageMode(CORNER);
-          image(flagImg, x + TILE_SIZE / 2 - flagW / 2, y - flagH, flagW, flagH);
-          pop();
-          break;
+            const flagW = TILE_SIZE * 1.2;
+            const flagH = TILE_SIZE * 2.2;
+            imageMode(CORNER);
+            image(flagImg, x + TILE_SIZE / 2 - flagW / 2, y - flagH, flagW, flagH);
+            break;
           }
         }
       } else {
@@ -2112,6 +2042,14 @@ function drawPlayer() {
 // R restarts. B skips to boss fight.
 // ------------------------------------------------------------
 function keyPressed() {
+  if (currentScreen === TITLE_SCREEN && key === 'Enter') {
+    goToScreen(LEVEL_ONE);
+    return;
+  } else if (currentScreen === LEVEL_ONE && key === 'Enter') {
+    goToScreen(LEVEL_TWO);
+    return;
+  }
+
   const canJump =
     player.form === FORM_HUMAN &&
     !playerInWater() &&

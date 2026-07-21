@@ -1,14 +1,4 @@
-let titleFrame1;
-let titleFrame2;
-let currentFrame = 0;
-let frameTimer = 0;
-const frameInterval = 0.6;
-
-function preload() {
-  titleFrame1 = loadImage('assets/images/Title frame1.png');
-  titleFrame2 = loadImage('assets/images/Title frame2.png');
-}
-
+/*
 function setup() {
   createCanvas(800, 450);
   imageMode(CORNER);
@@ -16,9 +6,10 @@ function setup() {
 
 function windowResized() {
   // Prevent canvas from resizing with window
-}
+} 
+*/
 
-function draw() {
+function drawTitleScreen() {
     
     frameTimer += deltaTime / 1000;
 
@@ -42,7 +33,7 @@ function draw() {
   text("Press Enter to Start", 310, 350);
   
 }
-
+/*
 function mousePressed() {
   if (mouseX > 375 && mouseX < 425 && mouseY > 320 && mouseY < 350) {
     window.location.href = 'game.html';
@@ -54,3 +45,4 @@ function keyPressed() {
     window.location.href = 'game.html';
   }
 }
+*/
