@@ -5,7 +5,7 @@
 // ============================================================
 const TITLE_SCREEN = "title.js";
 const LEVEL_ONE = "levelone.js";
-const LEVEL_TWO = "leveltwo.js"
+const LEVEL_TWO = "leveltwo.js";
 // SCREEN_C, SCREEN_D... add more here as you grow
 
 let currentScreen = TITLE_SCREEN;
@@ -14,10 +14,8 @@ let currentScreen = TITLE_SCREEN;
 // Keeping that in one place makes the app easy to reason about.
 function goToScreen(screen) {
   currentScreen = screen;
-    if (screen === LEVEL_ONE || screen === LEVEL_TWO) loadLevel(screen);
-
+  if (screen === LEVEL_ONE || screen === LEVEL_TWO) loadLevel(screen);
 }
-
 
 // ============================================================
 // BUTTON HELPERS
@@ -41,8 +39,10 @@ function drawButton(x, y, w, h, label) {
 
 function isMouseOver(x, y, w, h) {
   return (
-    mouseX > x - w / 2 && mouseX < x + w / 2 &&
-    mouseY > y - h / 2 && mouseY < y + h / 2
+    mouseX > x - w / 2 &&
+    mouseX < x + w / 2 &&
+    mouseY > y - h / 2 &&
+    mouseY < y + h / 2
   );
 }
 
@@ -71,7 +71,7 @@ function mousePressed() {
 let camX = 0;
 let camY = 0;
 const CAM_SMOOTHING = 0.5;
-let camZoom = .8;
+let camZoom = 0.8;
 
 // ------------------------------------------------------------
 // PLAYER CONFIGURATION
@@ -100,10 +100,10 @@ const FISH_SPRITE = {
 
   // Row mapping: row 0 is left, row 1 is right
   rows: {
-    down:  2,
-    up:    3,
+    down: 2,
+    up: 3,
     right: 0,
-    left:  1,
+    left: 1,
   },
 };
 
@@ -154,9 +154,9 @@ let runeSheet;
 let runeIconImg;
 
 const WIND_SPRITE = {
-  frameWidth: 0,  // set in setup()
+  frameWidth: 0, // set in setup()
   frameHeight: 0, // set in setup()
-  numFrames: 14,  // confirm by counting puffs in wind.png
+  numFrames: 14, // confirm by counting puffs in wind.png
   animSpeed: 6,
   scale: 1.0,
 };
@@ -164,12 +164,11 @@ const WIND_SPRITE = {
 let windFrame = 0;
 let windTimer = 0;
 
-
 const GRAVITY = 0.6; // 4.0  bird gravity? Calibrated downward pull
 const GRAVITY_AFTER_CHECKPOINT = GRAVITY * 1; // 60% of normal gravity after first checkpoint
 const FLAP_FORCE = -8; // -24 // Gives the exact velocity curve to hit 3 blocks high
 const TERMINAL_VELOCITY = 20;
-const HUMAN_GRAVITY = 0.9;
+const HUMAN_GRAVITY = 0.6; // should be 0.9
 const HUMAN_SPEED = 7;
 
 const FISH_SWIM_HORIZONTAL = 0.6; // left/right force
@@ -192,7 +191,7 @@ const FORM_FISH = "fish";
 const FORM_ORDER = [FORM_HUMAN, FORM_BIRD, FORM_FISH]; // defines forward-only progression
 
 let player = {
-  x: 4 * TILE_SIZE,
+  x: 40 * TILE_SIZE,
   y: 17 * TILE_SIZE, // 17 for start
   vy: 1,
   vx: 0,
@@ -240,7 +239,6 @@ const GATE_LAYERS = {
   barrier4: 4,
 };
 
-
 // ------------------------------------------------------------
 // WHIRLPOOL SPRITE CONFIGURATION
 // ------------------------------------------------------------
@@ -286,12 +284,16 @@ let windImg;
 let portalImg;
 let bridgeImg;
 let flagImg;
+let barrierImg;
 let level1MessageImg;
 
 let fishareaBG;
 let fishareaOverlay;
 let cavebg;
 let endbg;
+
+let fishareaBG2;
+let fishareaOverlay2;
 
 let fishSheet; //fish sprite sheet
 let birdSheet; //bird sprite sheet
@@ -310,7 +312,20 @@ let birdBGsound;
 // the same id number means different things on different layers.
 // Add/rename layer names here to match your map.json exactly.
 // ------------------------------------------------------------
-const SOLID_LAYERS = ["rock", "grass", "ground", "sand", "algae", "bark", "barrier", "barrier1", "barrier2", "barrier3", "barrier4"]; // blocks movement CHANGE SEAWEED PROPERTES
+const SOLID_LAYERS = [
+  "rock",
+  "grass",
+  "ground",
+  "sand",
+  "algae",
+  "bark",
+  "bridge",
+  "barrier",
+  "barrier1",
+  "barrier2",
+  "barrier3",
+  "barrier4",
+]; // blocks movement CHANGE SEAWEED PROPERTES
 const HAZARD_LAYERS = ["spikes"]; // kills on contact
 const CHECKPOINT_LAYER = "checkpoint"; // respawn points
 const KEY_LAYER = "key"; // matches the JSON layer name
@@ -349,19 +364,44 @@ let gameState = STATE_PLAY;
 const LEVELS = {
   [LEVEL_ONE]: {
     areas: [
-      { key: 'start', json: 'startArea', bg: 'startbg', bgSize: [3550, null] },
-      { key: 'bird',  json: 'birdArea' },
-      { key: 'fish',  json: 'fishArea', bg: 'fishareaBG', bgSize: [2150, 800], anchorRightOf: 'bird', shiftTiles: -37, anchorBelow: 'bird' },
-      { key: 'end',   json: 'endArea',  bg: 'endbg', anchorRightOf: 'bird', anchorBottom: true }, // ADDED anchorRightOf, no shiftTiles
+      { key: "start", json: "startArea", bg: "startbg", bgSize: [3550, null] },
+      { key: "bird", json: "birdArea", bg: "cavebg" },
+      {
+        key: "fish",
+        json: "fishArea",
+        bg: "fishareaBG",
+        overlay: "fishareaOverlay",
+        bgSize: [2150, 800],
+        anchorRightOf: "bird",
+        shiftTiles: -37,
+        anchorBelow: "bird",
+      },
+      {
+        key: "end",
+        json: "endArea",
+        bg: "endbg",
+        anchorRightOf: "bird",
+        anchorBottom: true,
+      }, // ADDED anchorRightOf, no shiftTiles
     ],
     playerStart: { x: 4 * TILE_SIZE, y: 17 * TILE_SIZE },
     buildWindZones: buildLevel1WindZones,
   },
   [LEVEL_TWO]: {
     areas: [
-      { key: 'start', json: 'startArea2' },
-      { key: 'bird',  json: 'birdArea2' },
-      { key: 'fish',  json: 'fishArea2', anchorBelow: 'bird' },
+      { key: "start", json: "startArea2" },
+      {
+        key: "bird",
+        json: "birdArea2",
+        // bg: 'cavebg2', overlay: 'fishareaOverlay2',
+      },
+      {
+        key: "fish",
+        json: "fishArea2",
+        anchorRightOf: "bird",
+        shiftTiles: -32,
+        anchorBelow: "bird",
+      },
     ],
     playerStart: { x: 4 * TILE_SIZE, y: 10 * TILE_SIZE },
     buildWindZones: buildLevel2WindZones,
@@ -378,14 +418,14 @@ function preload() {
   fishArea = loadJSON("data/fisharea.json");
   endArea = loadJSON("data/endarea.json");
 
-  //startArea2 = loadJSON("data/2startarea.json"); 
- fishArea2 = loadJSON("data/2fisharea.json");
+  startArea2 = loadJSON("data/2startarea.json");
+  fishArea2 = loadJSON("data/2fisharea.json");
   birdArea2 = loadJSON("data/2birdarea.json");
 
   fishSheet = loadImage("assets/images/fish.png");
 
-  titleFrame1 = loadImage('assets/images/Title frame1.png');
-  titleFrame2 = loadImage('assets/images/Title frame2.png');
+  titleFrame1 = loadImage("assets/images/Title frame1.png");
+  titleFrame2 = loadImage("assets/images/Title frame2.png");
 
   grassImg = loadImage("assets/images/grass.png");
   groundImg = loadImage("assets/images/ground.png");
@@ -401,6 +441,7 @@ function preload() {
   spike2Img = loadImage("assets/images/spike2.png");
   spike3Img = loadImage("assets/images/spike3.png");
   spike4Img = loadImage("assets/images/spike4.png");
+  barrierImg = loadImage("assets/images/barrier.png");
 
   waterSurfaceImg = loadImage("assets/images/watersurface.png");
   fishareaBG = loadImage("assets/images/fishareaBG.png");
@@ -413,7 +454,7 @@ function preload() {
   runeIconImg = loadImage("assets/images/rune.png");
   portalClosedImg = loadImage("assets/images/portalclosed.png");
   portalOpenImg = loadImage("assets/images/portalopen.png");
-  windImg = loadImage("assets/images/wind.png"); 
+  windImg = loadImage("assets/images/wind.png");
   portalImg = loadImage("assets/images/portalclosed.png");
   bridgeImg = loadImage("assets/images/bridge.png");
 
@@ -433,10 +474,21 @@ function preload() {
   }
 
   rawAssets = {
-    startArea, birdArea, fishArea, endArea,
-    //startArea2, 
-    birdArea2, fishArea2,
-    startbg, fishareaBG, endbg,
+    startArea,
+    birdArea,
+    fishArea,
+    endArea,
+    startArea2,
+    birdArea2,
+    fishArea2,
+    startbg,
+    fishareaBG,
+    endbg,
+    cavebg,
+    // cavebg2,
+    //fishareaBG2,
+    fishareaOverlay,
+    //fishareaOverlay2,
   };
 }
 
@@ -462,8 +514,6 @@ function setup() {
   loadLevel(LEVEL_ONE);
 }
 
-
-
 let rawAssets = {}; // preload() fills this: rawAssets.birdArea2 = loadJSON(...)
 let levelAreas = []; // current level's computed areas, replaces startArea/birdArea/etc as globals
 
@@ -477,11 +527,16 @@ function computeAreaLayout(levelDef) {
 
     if (def.anchorRightOf) {
       // ADDED — position relative to another area's right edge, not the running cursor
-      const target = areas.find(a => a.key === def.anchorRightOf);
+      const target = areas.find((a) => a.key === def.anchorRightOf);
       if (target) {
-        xTiles = (target.bounds.x / TILE_SIZE + target.json.mapWidth) + (def.shiftTiles || 0);
+        xTiles =
+          target.bounds.x / TILE_SIZE +
+          target.json.mapWidth +
+          (def.shiftTiles || 0);
       } else {
-        console.warn(`anchorRightOf "${def.anchorRightOf}" not found — is it defined before "${def.key}"?`);
+        console.warn(
+          `anchorRightOf "${def.anchorRightOf}" not found — is it defined before "${def.key}"?`,
+        );
         xTiles = cursorTiles + (def.shiftTiles || 0);
       }
     } else {
@@ -490,15 +545,17 @@ function computeAreaLayout(levelDef) {
 
     let yTiles = 0;
     if (def.anchorBelow) {
-      const target = areas.find(a => a.key === def.anchorBelow);
+      const target = areas.find((a) => a.key === def.anchorBelow);
       if (target) {
         yTiles = target.bounds.y / TILE_SIZE + target.json.mapHeight;
       } else {
-        console.warn(`anchorBelow "${def.anchorBelow}" not found — is it defined before "${def.key}"?`);
+        console.warn(
+          `anchorBelow "${def.anchorBelow}" not found — is it defined before "${def.key}"?`,
+        );
       }
     } else if (def.anchorBottom) {
-      const bird = areas.find(a => a.key === 'bird');
-      yTiles = bird ? (bird.json.mapHeight - json.mapHeight) : 0;
+      const bird = areas.find((a) => a.key === "bird");
+      yTiles = bird ? bird.json.mapHeight - json.mapHeight : 0;
     }
 
     areas.push({
@@ -506,6 +563,7 @@ function computeAreaLayout(levelDef) {
       json,
       bg: def.bg ? rawAssets[def.bg] : null,
       bgSize: def.bgSize,
+      overlay: def.overlay ? rawAssets[def.overlay] : null,
       bounds: {
         x: xTiles * TILE_SIZE,
         y: yTiles * TILE_SIZE,
@@ -519,26 +577,42 @@ function computeAreaLayout(levelDef) {
   return areas;
 }
 
-
 function loadLevel(levelId) {
   const def = LEVELS[levelId];
   stopAllGameSounds();
 
-  solidTiles = []; hazardTiles = []; checkpoints = [];
-  keyTilesList = []; keyMap = new Map(); keyTotal = 0; keyCollected = 0; portalUnlocked = false;
-  whirlpoolTiles = []; portalTiles = []; waterTiles = []; seaweedTiles = [];
+  solidTiles = [];
+  hazardTiles = [];
+  checkpoints = [];
+  keyTilesList = [];
+  keyMap = new Map();
+  keyTotal = 0;
+  keyCollected = 0;
+  portalUnlocked = false;
+  whirlpoolTiles = [];
+  portalTiles = [];
+  waterTiles = [];
+  seaweedTiles = [];
   windZones = [];
-  activeCheckpointIndex = -1; lastCheckpoint = null;
+  activeCheckpointIndex = -1;
+  lastCheckpoint = null;
   worldState = {}; // see below
 
   levelAreas = computeAreaLayout(def);
-  WORLD_W = Math.max(...levelAreas.map(a => a.bounds.x + a.bounds.w));
-  WORLD_H = Math.max(...levelAreas.map(a => a.bounds.y + a.bounds.h));
+  WORLD_W = Math.max(...levelAreas.map((a) => a.bounds.x + a.bounds.w));
+  WORLD_H = Math.max(...levelAreas.map((a) => a.bounds.y + a.bounds.h));
 
-  const checkpointTiles = [], keyTiles = [];
-for (const area of levelAreas) {
-  processJsonLayers(area.json, checkpointTiles, keyTiles, area.bounds.x, area.bounds.y);
-}
+  const checkpointTiles = [],
+    keyTiles = [];
+  for (const area of levelAreas) {
+    processJsonLayers(
+      area.json,
+      checkpointTiles,
+      keyTiles,
+      area.bounds.x,
+      area.bounds.y,
+    );
+  }
   checkpoints = groupCheckpointTiles(checkpointTiles);
   keyTilesList = keyTiles;
   keyTotal = keyTiles.length;
@@ -546,8 +620,11 @@ for (const area of levelAreas) {
 
   windZones = def.buildWindZones ? def.buildWindZones(levelAreas) : [];
 
-  player.x = def.playerStart.x; player.y = def.playerStart.y;
-  player.vx = 0; player.vy = 0; player.form = FORM_HUMAN;
+  player.x = def.playerStart.x;
+  player.y = def.playerStart.y;
+  player.vx = 0;
+  player.vy = 0;
+  player.form = FORM_HUMAN;
   playerStart = { ...def.playerStart };
 
   camX = constrain(player.x - width / 2, 0, WORLD_W - width);
@@ -556,14 +633,14 @@ for (const area of levelAreas) {
 }
 
 function findArea(levelAreas, key) {
-  return levelAreas.find(a => a.key === key);
+  return levelAreas.find((a) => a.key === key);
 }
 
 function buildLevel1WindZones(levelAreas) {
-  const start = findArea(levelAreas, 'start');
-  const bird  = findArea(levelAreas, 'bird');
-  const fish  = findArea(levelAreas, 'fish');
-  const end   = findArea(levelAreas, 'end');
+  const start = findArea(levelAreas, "start");
+  const bird = findArea(levelAreas, "bird");
+  const fish = findArea(levelAreas, "fish");
+  const end = findArea(levelAreas, "end");
   const zones = [];
 
   // Zone 1: human -> bird (ceiling)
@@ -594,7 +671,7 @@ function buildLevel1WindZones(levelAreas) {
     x: end.bounds.x,
     y: bird.bounds.h - end.bounds.h / 5,
     w: 5 * TILE_SIZE,
-    h: (end.bounds.h / 5) / TILE_SIZE * TILE_SIZE,
+    h: (end.bounds.h / 5 / TILE_SIZE) * TILE_SIZE,
     fromForm: FORM_FISH,
     transformTo: FORM_HUMAN,
     hasCeiling: false,
@@ -608,7 +685,6 @@ function buildLevel2WindZones(levelAreas) {
   // so loadLevel(LEVEL_TWO) doesn't crash on an undefined function.
   return [];
 }
-
 
 function shouldDrawArea(area) {
   const bounds = area.bounds;
@@ -632,7 +708,7 @@ function shouldDrawArea(area) {
 }
 
 function drawInstructions() {
-  const start = findArea(levelAreas, 'start');
+  const start = findArea(levelAreas, "start");
   const inStart = start && player.x < start.bounds.x + start.bounds.w;
   if (!inStart) return;
 
@@ -656,7 +732,8 @@ function drawInstructions() {
 function draw() {
   background(20);
   if (currentScreen === TITLE_SCREEN) drawTitleScreen();
-  else if (currentScreen === LEVEL_ONE || currentScreen === LEVEL_TWO) drawLevelScreen();
+  else if (currentScreen === LEVEL_ONE || currentScreen === LEVEL_TWO)
+    drawLevelScreen();
 }
 
 function drawLevelScreen() {
@@ -689,11 +766,20 @@ function drawLevelScreen() {
     enforceLocationForm();
 
     whirlpoolTimer++;
-    if (whirlpoolTimer >= WHIRLPOOL_SPRITE.animSpeed) { whirlpoolTimer = 0; whirlpoolFrame = (whirlpoolFrame + 1) % WHIRLPOOL_SPRITE.numFrames; }
+    if (whirlpoolTimer >= WHIRLPOOL_SPRITE.animSpeed) {
+      whirlpoolTimer = 0;
+      whirlpoolFrame = (whirlpoolFrame + 1) % WHIRLPOOL_SPRITE.numFrames;
+    }
     windTimer++;
-    if (windTimer >= WIND_SPRITE.animSpeed) { windTimer = 0; windFrame = (windFrame + 1) % WIND_SPRITE.numFrames; }
+    if (windTimer >= WIND_SPRITE.animSpeed) {
+      windTimer = 0;
+      windFrame = (windFrame + 1) % WIND_SPRITE.numFrames;
+    }
     runeTimer++;
-    if (runeTimer >= RUNE_SPRITE.animSpeed) { runeTimer = 0; runeFrame = (runeFrame + 1) % RUNE_SPRITE.numFrames; }
+    if (runeTimer >= RUNE_SPRITE.animSpeed) {
+      runeTimer = 0;
+      runeFrame = (runeFrame + 1) % RUNE_SPRITE.numFrames;
+    }
 
     resolveSolidCollisions();
     checkWhirlpools();
@@ -706,9 +792,9 @@ function drawLevelScreen() {
     animateCharacter();
     drawPlayer();
 
-    const fish = findArea(levelAreas, 'fish');
-    if (fishareaOverlay && fish) {
-      image(fishareaOverlay, fish.bounds.x, fish.bounds.y, fish.bounds.w, 800);
+    const fish = findArea(levelAreas, "fish");
+    if (fish && fish.overlay) {
+      image(fish.overlay, fish.bounds.x, fish.bounds.y, fish.bounds.w, 800); 
     }
   }
 
@@ -725,7 +811,8 @@ function drawEndScreen() {
   push();
   imageMode(CENTER);
   const overlayW = min(width * 0.75, 600);
-  const overlayH = (level1MessageImg.height / level1MessageImg.width) * overlayW;
+  const overlayH =
+    (level1MessageImg.height / level1MessageImg.width) * overlayW;
   image(level1MessageImg, width / 2, height / 2 + 20, overlayW, overlayH);
   pop();
 }
@@ -767,7 +854,7 @@ function tryTransform(zone) {
     if (zone.fromForm === FORM_FISH && zone.transformTo === FORM_HUMAN) {
       if (playerInWater()) return;
     }
-    
+
     player.form = zone.transformTo;
     console.log("Transformed into:", player.form);
   }
@@ -838,9 +925,12 @@ function drawWindZones() {
     imageMode(CENTER);
     image(
       windImg,
-      z.x + z.w / 2, z.y + z.h / 2,
-      dw, dh,
-      sx, sy,
+      z.x + z.w / 2,
+      z.y + z.h / 2,
+      dw,
+      dh,
+      sx,
+      sy,
       WIND_SPRITE.frameWidth,
       WIND_SPRITE.frameHeight,
     );
@@ -937,12 +1027,14 @@ function updateFishAreaSound() {
 function updateFlappingSound() {
   if (!flappingsound) return;
 
-  const bird = findArea(levelAreas, 'bird'); // ADDED
+  const bird = findArea(levelAreas, "bird"); // ADDED
   if (!bird) return; // ADDED — guard in case levelAreas isn't populated yet
 
-  const inBirdArea = player.x >= bird.bounds.x && player.x < bird.bounds.x + bird.bounds.w;
+  const inBirdArea =
+    player.x >= bird.bounds.x && player.x < bird.bounds.x + bird.bounds.w;
   const isFlapping = keyIsDown(87);
-  const shouldPlay = player.form === FORM_BIRD && inBirdArea && (player.isMoving || isFlapping);
+  const shouldPlay =
+    player.form === FORM_BIRD && inBirdArea && (player.isMoving || isFlapping);
 
   if (shouldPlay) {
     if (!flappingsound.isPlaying()) flappingsound.loop();
@@ -952,7 +1044,15 @@ function updateFlappingSound() {
 }
 
 function stopAllGameSounds() {
-  const sounds = [walkingsound, flappingsound, fishareasound, humanBGsound, birdBGsound, runesound, diesound];
+  const sounds = [
+    walkingsound,
+    flappingsound,
+    fishareasound,
+    humanBGsound,
+    birdBGsound,
+    runesound,
+    diesound,
+  ];
   for (const s of sounds) {
     if (s && s.isPlaying && s.isPlaying()) {
       s.stop();
@@ -1012,18 +1112,18 @@ function animateCharacter() {
 // let inSea = playerInWater();
 // let inStart = player.x < TILE_SIZE * startArea.mapWidth;
 
-
 function enforceLocationForm() {
   if (playerInWater()) {
     if (player.form !== FORM_FISH) player.form = FORM_FISH;
     return;
   }
 
-  const bird = findArea(levelAreas, 'bird');
+  const bird = findArea(levelAreas, "bird");
   if (!bird) return;
 
   const inBirdAreaBounds =
-    player.x >= bird.bounds.x && player.x < bird.bounds.x + bird.bounds.w &&
+    player.x >= bird.bounds.x &&
+    player.x < bird.bounds.x + bird.bounds.w &&
     player.y < bird.bounds.y + bird.bounds.h;
 
   if (inBirdAreaBounds && player.form !== FORM_BIRD) {
@@ -1129,7 +1229,8 @@ function processJsonLayers(
       else if (isKey) keyTiles.push(rect);
       else if (isWhirlpool) whirlpoolTiles.push(rect);
       else if (isWater) waterTiles.push(rect);
-      else if (isSeaweed) seaweedTiles.push(rect); // ADDED
+      else if (isSeaweed)
+        seaweedTiles.push(rect); // ADDED
       else if (isPortal) portalTiles.push(rect);
     }
   }
@@ -1281,7 +1382,7 @@ function resolveSolidCollisions() {
   for (const t of solidTiles) {
     const requiredKeys = GATE_LAYERS[t.layerName];
     if (requiredKeys !== undefined && keyCollected >= requiredKeys) {
-      print ("keycollected >= required keys")
+      print("keycollected >= required keys");
       continue; // ADDED — this gate is open, no collision
     }
     resolveCircleRect(player, t);
@@ -1362,8 +1463,12 @@ function resolveCircleRect(p, rect) {
 function checkHazardCollisions() {
   if (player.invincible) return;
 
-  const start = findArea(levelAreas, 'start');
-  if (start && player.x < start.bounds.x + start.bounds.w && player.y > 30 * TILE_SIZE) {
+  const start = findArea(levelAreas, "start");
+  if (
+    start &&
+    player.x < start.bounds.x + start.bounds.w &&
+    player.y > 30 * TILE_SIZE
+  ) {
     respawnFromHazard();
     return;
   }
@@ -1453,8 +1558,8 @@ function findClosestPassedCheckpoint(px, py) {
 // ------------------------------------------------------------
 function respawnFromHazard() {
   if (diesound) diesound.play();
-   if (walkingsound && walkingsound.isPlaying()) walkingsound.stop(); 
-  if (flappingsound && flappingsound.isPlaying()) flappingsound.stop(); 
+  if (walkingsound && walkingsound.isPlaying()) walkingsound.stop();
+  if (flappingsound && flappingsound.isPlaying()) flappingsound.stop();
   if (fishareasound && fishareasound.isPlaying()) fishareasound.stop();
 
   const spawn =
@@ -1512,8 +1617,10 @@ function checkPortalEntrance() {
   if (gameState !== STATE_PLAY || !portalUnlocked) return;
 
   for (const t of portalTiles) {
-    const overlapsX = player.x + player.r > t.x && player.x - player.r < t.x + t.w;
-    const overlapsY = player.y + player.r > t.y && player.y - player.r < t.y + t.h;
+    const overlapsX =
+      player.x + player.r > t.x && player.x - player.r < t.x + t.w;
+    const overlapsY =
+      player.y + player.r > t.y && player.y - player.r < t.y + t.h;
 
     if (overlapsX && overlapsY) {
       stopAllGameSounds();
@@ -1608,7 +1715,8 @@ function drawTiles(area) {
 
   for (const rockLayer of layers) {
     if (rockLayer.name === "rock") {
-      for (const tile of rockLayer.tiles) rockPositions.add(`${tile.x},${tile.y}`);
+      for (const tile of rockLayer.tiles)
+        rockPositions.add(`${tile.x},${tile.y}`);
     }
   }
 
@@ -1627,18 +1735,30 @@ function drawTiles(area) {
     }
   }
 
-  if (area.key === 'start' && area.bg) {
-    image(area.bg, mapXOffset, mapYOffset, area.bgSize?.[0] ?? area.bounds.w, area.bgSize?.[1] ?? area.bounds.h);
+  if (area.key === "start" && area.bg) {
+    image(
+      area.bg,
+      mapXOffset,
+      mapYOffset,
+      area.bgSize?.[0] ?? area.bounds.w,
+      area.bgSize?.[1] ?? area.bounds.h,
+    );
   }
-  if (area.key === 'fish' && area.bg) {
-    image(area.bg, mapXOffset, mapYOffset, area.bgSize?.[0] ?? area.bounds.w, area.bgSize?.[1] ?? area.bounds.h);
+  if (area.key === "fish" && area.bg) {
+    image(
+      area.bg,
+      mapXOffset,
+      mapYOffset,
+      area.bgSize?.[0] ?? area.bounds.w,
+      area.bgSize?.[1] ?? area.bounds.h,
+    );
   }
-  if (area.key === 'end' && area.bg) {
+  if (area.key === "end" && area.bg) {
     image(area.bg, mapXOffset, mapYOffset, area.bounds.w, area.bounds.h);
   }
 
   // Bird area: bg green + cavebg, drawn before the rest
-  if (area.key === 'bird' && cavebg) {
+  if (area.key === "bird" && area.bg) {
     for (let l = layers.length - 1; l > -1; l--) {
       const layer = layers[l];
       if (layer.name !== "bg green") continue;
@@ -1649,11 +1769,13 @@ function drawTiles(area) {
         rect(x, y, TILE_SIZE, TILE_SIZE);
       }
     }
-    const fishArea = findArea(levelAreas, 'fish');
-    const fishAreaStartX = fishArea ? fishArea.bounds.x : (mapXOffset + area.bounds.w);
+    const fishArea = findArea(levelAreas, "fish");
+    const fishAreaStartX = fishArea
+      ? fishArea.bounds.x
+      : mapXOffset + area.bounds.w;
     const buffer = -7 * TILE_SIZE;
-    const caveX = fishAreaStartX - buffer - cavebg.width;
-    image(cavebg, caveX, mapYOffset);
+    const caveX = fishAreaStartX - buffer - area.bg.width;
+    image(area.bg, caveX, mapYOffset);
   }
 
   for (let l = layers.length - 1; l > -1; l--) {
@@ -1663,8 +1785,10 @@ function drawTiles(area) {
     if (layer.name === "background") continue;
 
     let spikePositions = null;
-    if (area.key === 'bird' && layer.name === "spikes") {
-      spikePositions = new Set(layer.tiles.map((tile) => `${tile.x},${tile.y}`));
+    if (area.key === "bird" && layer.name === "spikes") {
+      spikePositions = new Set(
+        layer.tiles.map((tile) => `${tile.x},${tile.y}`),
+      );
     }
 
     for (const t of layer.tiles) {
@@ -1674,13 +1798,26 @@ function drawTiles(area) {
 
       if (layer.name === KEY_LAYER) {
         const mapKey = getWorldTileKey(x, y);
-        if (keyMap.get(mapKey)) { pop(); continue; }
+        if (keyMap.get(mapKey)) {
+          pop();
+          continue;
+        }
         if (runeSheet) {
           const sx = runeFrame * RUNE_SPRITE.frameWidth;
           const dw = RUNE_SPRITE.frameWidth * RUNE_SPRITE.scale;
           const dh = RUNE_SPRITE.frameHeight * RUNE_SPRITE.scale;
           imageMode(CENTER);
-          image(runeSheet, x + TILE_SIZE / 2, y + TILE_SIZE / 2, dw, dh, sx, 0, RUNE_SPRITE.frameWidth, RUNE_SPRITE.frameHeight);
+          image(
+            runeSheet,
+            x + TILE_SIZE / 2,
+            y + TILE_SIZE / 2,
+            dw,
+            dh,
+            sx,
+            0,
+            RUNE_SPRITE.frameWidth,
+            RUNE_SPRITE.frameHeight,
+          );
         }
       } else if (layer.name === WHIRLPOOL_LAYER) {
         if (whirlpoolImg) {
@@ -1689,21 +1826,46 @@ function drawTiles(area) {
           const sx = whirlpoolFrame * frameW;
           imageMode(CENTER);
           translate(x + TILE_SIZE / 2, y + TILE_SIZE / 2);
-          image(whirlpoolImg, 0, 0, TILE_SIZE * WHIRLPOOL_SPRITE.scale, TILE_SIZE * WHIRLPOOL_SPRITE.scale, sx, 0, frameW, frameH);
+          image(
+            whirlpoolImg,
+            0,
+            0,
+            TILE_SIZE * WHIRLPOOL_SPRITE.scale,
+            TILE_SIZE * WHIRLPOOL_SPRITE.scale,
+            sx,
+            0,
+            frameW,
+            frameH,
+          );
         } else {
           fill(tileColor(layer.name, t.id));
           rect(x, y, TILE_SIZE, TILE_SIZE, TILE_SIZE * 0.25);
           fill(10, 50, 120, 160);
           ellipse(x + TILE_SIZE / 2, y + TILE_SIZE / 2, TILE_SIZE * 0.6);
         }
-      } else if (area.key === 'fish' && layer.name === "sand") {
-        sandImg ? image(sandImg, x, y, TILE_SIZE, TILE_SIZE) : (fill(tileColor(layer.name, t.id)), rect(x, y, TILE_SIZE, TILE_SIZE));
-      } else if (area.key === 'fish' && layer.name === "rock") {
-        sandrockImg ? image(sandrockImg, x, y, TILE_SIZE, TILE_SIZE) : (fill(tileColor(layer.name, t.id)), rect(x, y, TILE_SIZE, TILE_SIZE));
-      } else if ((area.key === 'bird' || area.key === 'start' || area.key === 'end') && layer.name === "rock") {
-        rockImg ? image(rockImg, x, y, TILE_SIZE, TILE_SIZE) : (fill(tileColor(layer.name, t.id)), rect(x, y, TILE_SIZE, TILE_SIZE));
+      } else if (area.key === "fish" && layer.name === "sand") {
+        sandImg
+          ? image(sandImg, x, y, TILE_SIZE, TILE_SIZE)
+          : (fill(tileColor(layer.name, t.id)),
+            rect(x, y, TILE_SIZE, TILE_SIZE));
+      } else if (area.key === "fish" && layer.name === "rock") {
+        sandrockImg
+          ? image(sandrockImg, x, y, TILE_SIZE, TILE_SIZE)
+          : (fill(tileColor(layer.name, t.id)),
+            rect(x, y, TILE_SIZE, TILE_SIZE));
+      } else if (
+        (area.key === "bird" || area.key === "start" || area.key === "end") &&
+        layer.name === "rock"
+      ) {
+        rockImg
+          ? image(rockImg, x, y, TILE_SIZE, TILE_SIZE)
+          : (fill(tileColor(layer.name, t.id)),
+            rect(x, y, TILE_SIZE, TILE_SIZE));
       } else if (layer.name === "background rock") {
-        bgRockImg ? image(bgRockImg, x, y, TILE_SIZE, TILE_SIZE) : (fill(tileColor(layer.name, t.id)), rect(x, y, TILE_SIZE, TILE_SIZE));
+        bgRockImg
+          ? image(bgRockImg, x, y, TILE_SIZE, TILE_SIZE)
+          : (fill(tileColor(layer.name, t.id)),
+            rect(x, y, TILE_SIZE, TILE_SIZE));
       } else if (layer.name === "background sky") {
         fill(tileColor(layer.name, t.id));
         rect(x, y, TILE_SIZE, TILE_SIZE);
@@ -1711,14 +1873,26 @@ function drawTiles(area) {
         fill(0, 0, 0, 0);
         rect(x, y, TILE_SIZE, TILE_SIZE);
       } else if (layer.name === "grass") {
-        grassImg ? image(grassImg, x, y, TILE_SIZE, TILE_SIZE) : (fill(tileColor(layer.name, t.id)), rect(x, y, TILE_SIZE, TILE_SIZE));
+        grassImg
+          ? image(grassImg, x, y, TILE_SIZE, TILE_SIZE)
+          : (fill(tileColor(layer.name, t.id)),
+            rect(x, y, TILE_SIZE, TILE_SIZE));
       } else if (layer.name === "ground") {
-        groundImg ? image(groundImg, x, y, TILE_SIZE, TILE_SIZE) : (fill(tileColor(layer.name, t.id)), rect(x, y, TILE_SIZE, TILE_SIZE));
+        groundImg
+          ? image(groundImg, x, y, TILE_SIZE, TILE_SIZE)
+          : (fill(tileColor(layer.name, t.id)),
+            rect(x, y, TILE_SIZE, TILE_SIZE));
       } else if (layer.name === "bark") {
-        barkImg ? image(barkImg, x, y, TILE_SIZE, TILE_SIZE) : (fill(tileColor(layer.name, t.id)), rect(x, y, TILE_SIZE, TILE_SIZE));
+        barkImg
+          ? image(barkImg, x, y, TILE_SIZE, TILE_SIZE)
+          : (fill(tileColor(layer.name, t.id)),
+            rect(x, y, TILE_SIZE, TILE_SIZE));
       } else if (layer.name === "water surface") {
-        waterSurfaceImg ? image(waterSurfaceImg, x, y, TILE_SIZE, TILE_SIZE) : (fill(tileColor(layer.name, t.id)), rect(x, y, TILE_SIZE, TILE_SIZE));
-      } else if (area.key === 'bird' && layer.name === "spikes") {
+        waterSurfaceImg
+          ? image(waterSurfaceImg, x, y, TILE_SIZE, TILE_SIZE)
+          : (fill(tileColor(layer.name, t.id)),
+            rect(x, y, TILE_SIZE, TILE_SIZE));
+      } else if (area.key === "bird" && layer.name === "spikes") {
         const leftNeighbor = spikePositions.has(`${t.x - 1},${t.y}`);
         const rightNeighbor = spikePositions.has(`${t.x + 1},${t.y}`);
         const rockAbove = rockPositions.has(`${t.x},${t.y - 1}`);
@@ -1731,7 +1905,13 @@ function drawTiles(area) {
         else if (rightNeighbor) spikeImg = spike1Img;
         else {
           const posHash = (t.x + t.y * 7) % 2;
-          spikeImg = rockAbove ? (posHash === 0 ? spike3Img : spike4Img) : (posHash === 0 ? spike4Img : spike3Img);
+          spikeImg = rockAbove
+            ? posHash === 0
+              ? spike3Img
+              : spike4Img
+            : posHash === 0
+              ? spike4Img
+              : spike3Img;
         }
 
         let rotation = 0;
@@ -1752,21 +1932,32 @@ function drawTiles(area) {
           rect(x, y, TILE_SIZE, TILE_SIZE);
         }
       } else if (layer.name === "seaweed") {
-        seaweedImg ? image(seaweedImg, x, y, TILE_SIZE, TILE_SIZE) : (fill(tileColor(layer.name, t.id)), rect(x, y, TILE_SIZE, TILE_SIZE));
+        seaweedImg
+          ? image(seaweedImg, x, y, TILE_SIZE, TILE_SIZE)
+          : (fill(tileColor(layer.name, t.id)),
+            rect(x, y, TILE_SIZE, TILE_SIZE));
       } else if (GATE_LAYERS[layer.name] !== undefined) {
         const isOpen = keyCollected >= GATE_LAYERS[layer.name];
-        if (!isOpen) image(sandrockImg, x, y, TILE_SIZE, TILE_SIZE);
+        if (!isOpen) image(barrierImg, x, y, TILE_SIZE, TILE_SIZE);
       } else if (layer.name === PORTAL_LAYER) {
-        const pImg = keyCollected >= REQUIRED_PORTAL_KEYS ? portalOpenImg : portalClosedImg;
+        const pImg =
+          keyCollected >= REQUIRED_PORTAL_KEYS
+            ? portalOpenImg
+            : portalClosedImg;
         if (pImg) {
           const tiles = layer.tiles;
-          const minX = Math.min(...tiles.map(tt => tt.x));
-          const maxX = Math.max(...tiles.map(tt => tt.x));
-          const minY = Math.min(...tiles.map(tt => tt.y));
-          const maxY = Math.max(...tiles.map(tt => tt.y));
+          const minX = Math.min(...tiles.map((tt) => tt.x));
+          const maxX = Math.max(...tiles.map((tt) => tt.x));
+          const minY = Math.min(...tiles.map((tt) => tt.y));
+          const maxY = Math.max(...tiles.map((tt) => tt.y));
           imageMode(CORNER);
-          image(pImg, minX * TILE_SIZE + mapXOffset, minY * TILE_SIZE + mapYOffset,
-            (maxX - minX + 1) * TILE_SIZE, (maxY - minY + 1) * TILE_SIZE);
+          image(
+            pImg,
+            minX * TILE_SIZE + mapXOffset,
+            minY * TILE_SIZE + mapYOffset,
+            (maxX - minX + 1) * TILE_SIZE,
+            (maxY - minY + 1) * TILE_SIZE,
+          );
           pop();
           continue;
         } else {
@@ -1779,7 +1970,13 @@ function drawTiles(area) {
             const flagW = TILE_SIZE * 1.2;
             const flagH = TILE_SIZE * 2.2;
             imageMode(CORNER);
-            image(flagImg, x + TILE_SIZE / 2 - flagW / 2, y - flagH, flagW, flagH);
+            image(
+              flagImg,
+              x + TILE_SIZE / 2 - flagW / 2,
+              y - flagH,
+              flagW,
+              flagH,
+            );
             break;
           }
         }
@@ -1814,7 +2011,7 @@ function tileColor(layerName, id) {
     case "seaweed":
       return color(40, 140, 60); // green — solid
     case "key":
-      return color(230, 200,  80); // gold key
+      return color(230, 200, 80); // gold key
     case "whirlpool":
       return color(30, 100, 200); // blue whirlpool
     case "sand":
@@ -1884,34 +2081,53 @@ function handleInput() {
 
   // --- Horizontal Movement ---
   if (player.form === FORM_HUMAN) {
-    if (keyIsDown(65)) { player.x -= HUMAN_SPEED; player.facing = "left"; player.isMoving = true; }
-    if (keyIsDown(68)) { player.x += HUMAN_SPEED; player.facing = "right"; player.isMoving = true; }
+    if (keyIsDown(65)) {
+      player.x -= HUMAN_SPEED;
+      player.facing = "left";
+      player.isMoving = true;
+    }
+    if (keyIsDown(68)) {
+      player.x += HUMAN_SPEED;
+      player.facing = "right";
+      player.isMoving = true;
+    }
   } else {
-    if (keyIsDown(65)) { player.x -= moveSpeed; player.facing = "left"; player.isMoving = true; }
-    if (keyIsDown(68)) { player.x += moveSpeed; player.facing = "right"; player.isMoving = true; }
+    if (keyIsDown(65)) {
+      player.x -= moveSpeed;
+      player.facing = "left";
+      player.isMoving = true;
+    }
+    if (keyIsDown(68)) {
+      player.x += moveSpeed;
+      player.facing = "right";
+      player.isMoving = true;
+    }
   }
 
   // --- Vertical Movement (form-based, not area-based) ---
   if (player.form === FORM_FISH) {
     player.vy += FISH_SINK_FORCE;
     if (!keyIsDown(87)) {
-        player.stamina = min(player.stamina + FISH_STAMINA_REGEN, FISH_STAMINA_MAX);
+      player.stamina = min(
+        player.stamina + FISH_STAMINA_REGEN,
+        FISH_STAMINA_MAX,
+      );
     }
     if (player.flapQueued && player.stamina >= FISH_STAMINA_COST) {
-        player.flapVelocity = -FISH_FLAP_FORCE;
-        player.stamina -= FISH_STAMINA_COST;
-        player.flapQueued = false;
-        player.isMoving = true;
-        player.facing = "up"; // ADD
+      player.flapVelocity = -FISH_FLAP_FORCE;
+      player.stamina -= FISH_STAMINA_COST;
+      player.flapQueued = false;
+      player.isMoving = true;
+      player.facing = "up"; // ADD
     } else {
-        player.flapQueued = false;
+      player.flapQueued = false;
     }
     player.flapVelocity *= 1 - FISH_FLAP_DECAY;
     player.vy += player.flapVelocity;
     if (keyIsDown(83)) {
-        player.vy += FISH_SWIM_DOWN;
-        player.isMoving = true;
-        player.facing = "down"; // ADD
+      player.vy += FISH_SWIM_DOWN;
+      player.isMoving = true;
+      player.facing = "down"; // ADD
     }
     // Reset to left/right when moving horizontally
     if (keyIsDown(65)) player.facing = "left";
@@ -2042,18 +2258,16 @@ function drawPlayer() {
 // R restarts. B skips to boss fight.
 // ------------------------------------------------------------
 function keyPressed() {
-  if (currentScreen === TITLE_SCREEN && key === 'Enter') {
+  if (currentScreen === TITLE_SCREEN && key === "Enter") {
     goToScreen(LEVEL_ONE);
     return;
-  } else if (currentScreen === LEVEL_ONE && key === 'Enter') {
+  } else if (currentScreen === LEVEL_ONE && key === "Enter") {
     goToScreen(LEVEL_TWO);
     return;
   }
 
   const canJump =
-    player.form === FORM_HUMAN &&
-    !playerInWater() &&
-    player.jumpCooldown <= 0;
+    player.form === FORM_HUMAN && !playerInWater() && player.jumpCooldown <= 0;
 
   if ((key === "w" || key === "W" || keyCode === 87) && canJump) {
     player.vy = -14;
