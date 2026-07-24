@@ -239,7 +239,7 @@ const DRAGON_STATE = {
   // FIGHTING: "fighting",   // level 3
 };
 const DRAGON_CONFIG = {
-  tileSpan: 3, // hitbox is 3x3 tiles, like the request — same units as TILE_SIZE  
+  tileSpan: 2, // hitbox is 3x3 tiles, like the request — same units as TILE_SIZE  
   chaseSpeed: 3.7, // base speed while chasing, before seaweed slow
   seaweedSlowFactor: 1.7, // dragon is slowed (player uses 2.5, see SEAWEED_SLOW_FACTOR)
   behindOffsetX: 11 * TILE_SIZE, // how far left of the player it reappears after a post-CP2 death
