@@ -178,7 +178,7 @@ const FISH_SWIM_UP = 0.4; // upward force — lower = harder to swim up
 const FISH_SWIM_DOWN = 0.9; // downward force — faster to sink than rise
 
 const FISH_STAMINA_MAX = 100;
-const FISH_STAMINA_REGEN = 0.7; // stamina recovered per frame when not flapping
+const FISH_STAMINA_REGEN = 0.8; // stamina recovered per frame when not flapping
 const FISH_STAMINA_COST = 10; // stamina used per flap tap
 const FISH_FLAP_FORCE = 2; // upward burst per flap
 const FISH_FLAP_DECAY = 0.3; // how quickly flap burst fades (higher = shorter burst)
@@ -239,9 +239,9 @@ const DRAGON_STATE = {
   // FIGHTING: "fighting",   // level 3
 };
 const DRAGON_CONFIG = {
-  tileSpan: 3, // hitbox is 3x3 tiles, like the request — same units as TILE_SIZE  chaseSpeed: 4, // base speed while chasing, before seaweed slow  chaseSpeed: 4, // base speed while chasing, before seaweed slow
-  chaseSpeed: 4, // base speed while chasing, before seaweed slow
-  seaweedSlowFactor: 2.8, // dragon is slowed MORE than the player (player uses 2.5, see SEAWEED_SLOW_FACTOR)
+  tileSpan: 3, // hitbox is 3x3 tiles, like the request — same units as TILE_SIZE  
+  chaseSpeed: 3.7, // base speed while chasing, before seaweed slow
+  seaweedSlowFactor: 1.7, // dragon is slowed (player uses 2.5, see SEAWEED_SLOW_FACTOR)
   behindOffsetX: 11 * TILE_SIZE, // how far left of the player it reappears after a post-CP2 death
   maxHealth: 100, // not used this level — wired up now so level 3 just reads/writes it
 };
@@ -1900,6 +1900,10 @@ function wakeDragon() {
   chaseCamZoomTarget = 0.7;
   if (chaseMusic && !chaseMusic.isPlaying()) chaseMusic.loop();
   console.log("Dragon woke up — chase started.");
+
+  dragonPath = [];
+dragonPathIndex = 0;
+dragonPathRecalcTimer = DRAGON_PATH_RECALC_INTERVAL; // forces recalc on the very next updateDragon() call
 }
  
 function dragonInSeaweed() {
@@ -1945,15 +1949,33 @@ function recordPlayerTrail() {
 // Moves the dragon toward the player. Called every frame while chasing.
 function updateDragon() {
   if (!dragon || dragon.state !== DRAGON_STATE.CHASING) return;
- 
+
+  dragonPathRecalcTimer++;
+  if (dragonPathRecalcTimer >= DRAGON_PATH_RECALC_INTERVAL || dragonPathIndex >= dragonPath.length) {
+    dragonPathRecalcTimer = 0;
+    recalcDragonPath();
+  }
+
   const speed = dragonInSeaweed()
     ? DRAGON_CONFIG.chaseSpeed / DRAGON_CONFIG.seaweedSlowFactor
     : DRAGON_CONFIG.chaseSpeed;
- 
-  const dx = player.x - dragon.x;
-  const dy = player.y - dragon.y;
+
+  let target = { x: player.x, y: player.y }; // fallback if no path yet
+  if (dragonPath.length > 0 && dragonPathIndex < dragonPath.length) {
+    const node = dragonPath[dragonPathIndex];
+    target = {
+      x: node.tx * TILE_SIZE + TILE_SIZE / 2,
+      y: node.ty * TILE_SIZE + TILE_SIZE / 2,
+    };
+    if (dist(dragon.x, dragon.y, target.x, target.y) < DRAGON_PATH_WAYPOINT_RADIUS) {
+      dragonPathIndex++;
+    }
+  }
+
+  const dx = target.x - dragon.x;
+  const dy = target.y - dragon.y;
   const d = Math.sqrt(dx * dx + dy * dy) || 1;
- 
+
   dragon.x += (dx / d) * speed;
   dragon.y += (dy / d) * speed;
   dragon.facing = dx < 0 ? "left" : "right";
@@ -2043,6 +2065,11 @@ function respawnFromDragon() {
     dragon.y = player.y;
  
     chaseCamZoomTarget = 0.7;
+
+    dragonPath = [];
+dragonPathIndex = 0;
+dragonPathRecalcTimer = DRAGON_PATH_RECALC_INTERVAL; // forces recalc on the very next updateDragon() call
+
     if (chaseMusic && !chaseMusic.isPlaying()) chaseMusic.loop();
   } else {
     // Died before CP2 (either before CP1, or between CP1 and CP2) —
