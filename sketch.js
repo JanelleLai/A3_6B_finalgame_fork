@@ -240,8 +240,8 @@ const DRAGON_STATE = {
 };
 const DRAGON_CONFIG = {
   tileSpan: 2, // hitbox is 3x3 tiles, like the request — same units as TILE_SIZE  
-  chaseSpeed: 3.7, // base speed while chasing, before seaweed slow
-  seaweedSlowFactor: 1.7, // dragon is slowed (player uses 2.5, see SEAWEED_SLOW_FACTOR)
+  chaseSpeed: 4.3, // base speed while chasing, before seaweed slow
+  seaweedSlowFactor: 1.3, // dragon is slowed (player uses 2.5, see SEAWEED_SLOW_FACTOR)
   behindOffsetX: 11 * TILE_SIZE, // how far left of the player it reappears after a post-CP2 death
   maxHealth: 100, // not used this level — wired up now so level 3 just reads/writes it
 };
@@ -1874,23 +1874,26 @@ function setupDragonForLevel(levelId) {
   // Find the two fish-area checkpoints that bracket the encounter —
   // first one inside the fish area's x-range is "before", second is "after".
   const fish = findArea(levelAreas, "fish");
-  if (fish) {
-    const inFish = [];
-    checkpoints.forEach((cp, i) => {
-      if (cp.x >= fish.bounds.x && cp.x < fish.bounds.x + fish.bounds.w) {
-        inFish.push(i);
-      }
-    });
-    fishCheckpointBeforeDragon = inFish[0] ?? -1;
-    fishCheckpointAfterDragon = inFish[1] ?? -1;
- 
-    if (fishCheckpointBeforeDragon === -1 || fishCheckpointAfterDragon === -1) {
-      console.warn(
-        "Dragon encounter expects 2 checkpoints in the fish area, found:",
-        inFish.length,
-      );
+if (fish) {
+  const inFish = [];
+  checkpoints.forEach((cp, i) => {
+    if (
+      cp.x >= fish.bounds.x && cp.x < fish.bounds.x + fish.bounds.w &&
+      cp.y >= fish.bounds.y && cp.y < fish.bounds.y + fish.bounds.h
+    ) {
+      inFish.push(i);
     }
+  });
+  fishCheckpointBeforeDragon = inFish[0] ?? -1;
+  fishCheckpointAfterDragon = inFish[1] ?? -1;
+
+  if (fishCheckpointBeforeDragon === -1 || fishCheckpointAfterDragon === -1) {
+    console.warn(
+      "Dragon encounter expects 2 checkpoints in the fish area, found:",
+      inFish.length,
+    );
   }
+}
 }
  
 
