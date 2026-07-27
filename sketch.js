@@ -241,7 +241,7 @@ const DRAGON_STATE = {
 const DRAGON_CONFIG = {
   tileSpan: 2, // hitbox is 3x3 tiles, like the request — same units as TILE_SIZE  
   chaseSpeed: 4.3, // base speed while chasing, before seaweed slow
-  seaweedSlowFactor: 1.3, // dragon is slowed (player uses 2.5, see SEAWEED_SLOW_FACTOR)
+  seaweedSlowFactor: 1.6, // dragon is slowed (player uses 2.5, see SEAWEED_SLOW_FACTOR)
   behindOffsetX: 11 * TILE_SIZE, // how far left of the player it reappears after a post-CP2 death
   maxHealth: 100, // not used this level — wired up now so level 3 just reads/writes it
 };
@@ -1761,6 +1761,10 @@ function respawnPlayer() {
   player.invincible = true;
   player.invincibleTimer = INVINCIBLE_FRAMES;
 
+  player.stamina = FISH_STAMINA_MAX;
+player.flapVelocity = 0;
+player.flapQueued = false;
+
   camX = constrain(player.x - width / 2, 0, WORLD_W - width);
   camY = constrain(player.y - height / 2, 0, WORLD_H - height);
 }
@@ -2062,6 +2066,9 @@ function respawnFromDragon() {
     const cp = checkpoints[fishCheckpointAfterDragon];
     player.x = cp.spawnX;
     player.y = cp.spawnY;
+    player.stamina = FISH_STAMINA_MAX;
+player.flapVelocity = 0;
+player.flapQueued = false;
  
     dragon.state = DRAGON_STATE.CHASING;
     dragon.x = player.x - DRAGON_CONFIG.behindOffsetX;
@@ -2104,7 +2111,10 @@ dragonPathRecalcTimer = DRAGON_PATH_RECALC_INTERVAL; // forces recalc on the ver
   player.vx = 0;
   player.bounceVX = 0;
   player.bounceVY = 0;
- 
+player.stamina = FISH_STAMINA_MAX;
+player.flapVelocity = 0;
+player.flapQueued = false;
+
   camX = constrain(player.x - width / 2, 0, WORLD_W - width);
   camY = constrain(player.y - height / 2, 0, WORLD_H - height);
 }
