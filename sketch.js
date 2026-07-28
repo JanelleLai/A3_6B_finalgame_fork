@@ -178,7 +178,7 @@ const FISH_SWIM_UP = 0.4; // upward force — lower = harder to swim up
 const FISH_SWIM_DOWN = 0.9; // downward force — faster to sink than rise
 
 const FISH_STAMINA_MAX = 100;
-const FISH_STAMINA_REGEN = 0.8; // stamina recovered per frame when not flapping
+const FISH_STAMINA_REGEN = 0.7; // stamina recovered per frame when not flapping
 const FISH_STAMINA_COST = 10; // stamina used per flap tap
 const FISH_FLAP_FORCE = 2; // upward burst per flap
 const FISH_FLAP_DECAY = 0.3; // how quickly flap burst fades (higher = shorter burst)
@@ -242,7 +242,7 @@ const DRAGON_CONFIG = {
   tileSpan: 2, // hitbox is 3x3 tiles, like the request — same units as TILE_SIZE  
   chaseSpeed: 4.3, // base speed while chasing, before seaweed slow
   seaweedSlowFactor: 1.6, // dragon is slowed (player uses 2.5, see SEAWEED_SLOW_FACTOR)
-  behindOffsetX: 13 * TILE_SIZE, // how far left of the player it reappears after a post-CP2 death
+  behindOffsetX: 15 * TILE_SIZE, // how far left of the player it reappears after a post-CP2 death
   maxHealth: 100, // not used this level — wired up now so level 3 just reads/writes it
 };
 let dragon = null; // null on any level without a dragon; built in setupDragonForLevel()
@@ -811,7 +811,7 @@ function buildLevel2WindZones(levelAreas) {
 
   // Zone: human -> bird, placed at the start/bird boundary
 zones.push({
-    x: start.bounds.x + start.bounds.w - 6 * TILE_SIZE + 3 * TILE_SIZE,
+x: start.bounds.x + start.bounds.w - 9 * TILE_SIZE,
     y: 0,
     w: 6 * TILE_SIZE,
     h: start.bounds.h + 6 * TILE_SIZE,
