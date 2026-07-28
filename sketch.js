@@ -810,8 +810,8 @@ function buildLevel2WindZones(levelAreas) {
 
 
   // Zone: human -> bird, placed at the start/bird boundary
-  zones.push({
-    x: start.bounds.x + start.bounds.w - 6 * TILE_SIZE,
+zones.push({
+    x: start.bounds.x + start.bounds.w - 6 * TILE_SIZE + 3 * TILE_SIZE,
     y: 0,
     w: 6 * TILE_SIZE,
     h: start.bounds.h + 6 * TILE_SIZE,
@@ -1109,7 +1109,10 @@ function checkWindZones() {
       player.windTimer++;
       tryTransform(z);
 
-      if (player.windTimer > WIND_DELAY_FRAMES) {
+      if (
+  (currentScreen === LEVEL_ONE || currentScreen === LEVEL_TWO) &&
+  player.windTimer > WIND_DELAY_FRAMES
+) {
         const rampProgress = min(
           (player.windTimer - WIND_DELAY_FRAMES) / WIND_RAMP_FRAMES,
           1,
