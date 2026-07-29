@@ -19,7 +19,7 @@
       "collider": true
     },
     {
-      "name": "rock",
+      "name": "grass",
       "tiles": [
         { "id": "4", "x": 0, "y": 10 },
         { "id": "4", "x": 1, "y": 10 },

@@ -6,6 +6,8 @@
 const TITLE_SCREEN = "title.js";
 const LEVEL_ONE = "levelone.js";
 const LEVEL_TWO = "leveltwo.js";
+const LEVEL_THREE = "levelthree.js";
+
 // SCREEN_C, SCREEN_D... add more here as you grow
 
 let currentScreen = TITLE_SCREEN;
@@ -14,7 +16,7 @@ let currentScreen = TITLE_SCREEN;
 // Keeping that in one place makes the app easy to reason about.
 function goToScreen(screen) {
   currentScreen = screen;
-  if (screen === LEVEL_ONE || screen === LEVEL_TWO) loadLevel(screen);
+  if (screen === LEVEL_ONE || screen === LEVEL_TWO || screen === LEVEL_THREE) loadLevel(screen);
 }
 
 // ============================================================
@@ -142,6 +144,40 @@ const BIRD_SPRITE = {
   },
 };
 
+// ------------------------------------------------------------
+// DRAGON SPRITE CONFIGURATION 
+// ------------------------------------------------------------
+
+const DRAGON_SPRITE = {
+  frameWidth: 8896 / 8,   // flying/idle sheet
+  frameHeight: 2988 / 4,
+  numFrames: 8,
+  animSpeed: 6,
+  scale: 0.3,
+  rows: {
+    flyingLeft: 0,
+    flyingRight: 1,
+    idleLeft: 2,
+    idleRight: 3,
+  },
+};
+
+const DRAGON_SLEEPING_SPRITE = {
+  frameWidth: 0,
+  frameHeight: 0,
+  numFrames: 6,
+  animSpeed: 15,
+  scale: 0.4,
+};
+
+let dragonSheet;
+let dragonSleepingSheet;
+let dragonAnimFrame = 0;
+let dragonAnimTimer = 0;
+let dragonPingPongDir = 1;
+let dragonSleepFrame = 0;
+let dragonSleepTimer = 0;
+
 const RUNE_SPRITE = {
   frameWidth: 620,
   frameHeight: 600,
@@ -192,6 +228,7 @@ const NOISE_INCREASE_RATE = 2.5; // per frame while moving
 const NOISE_DECAY_RATE = 0.9;    // per frame while idle
 
 const TILE_SIZE = 50;
+const CHECKPOINT_TRIGGER_MARGIN = 2 * TILE_SIZE; // how far around the flag counts as "reached"
 
 const FORM_HUMAN = "human";
 const FORM_BIRD = "bird";
@@ -231,18 +268,31 @@ let player = {
   jumpCooldown: 0,
 };
 
+//bats stuff
+const BAT_LAYER = "bat"; // matches your existing "bat" JSON layer
+const BAT_STATE = {
+  SLEEPING: "sleeping",
+  AWAKE: "awake",
+};
+const BAT_SPEED_MULTIPLIER = 0.8; // bats move at 150% of the bird's move speed
+let bats = []; // [{x,y,spawnX,spawnY,state,speed}] — current level's bats
+let batSpawnTiles = []; // raw "bat" layer tiles for the current level
+let batsWoken = false; // once true, stays true — bats never go back to sleep
+let secondRuneKey = null;
+
+
 // dragon stuff
 const DRAGON_SPAWN_LAYER = "dragon spawn"; // matches your JSON layer name exactly
 const DRAGON_STATE = {
   SLEEPING: "sleeping",
   CHASING: "chasing",
-  // FIGHTING: "fighting",   // level 3
+  FIGHTING: "fighting",  
 };
 const DRAGON_CONFIG = {
   tileSpan: 2, // hitbox is 3x3 tiles, like the request — same units as TILE_SIZE  
   chaseSpeed: 4.3, // base speed while chasing, before seaweed slow
   seaweedSlowFactor: 1.6, // dragon is slowed (player uses 2.5, see SEAWEED_SLOW_FACTOR)
-  behindOffsetX: 15 * TILE_SIZE, // how far left of the player it reappears after a post-CP2 death
+  behindOffsetX: 17 * TILE_SIZE, // how far left of the player it reappears after a post-CP2 death
   maxHealth: 100, // not used this level — wired up now so level 3 just reads/writes it
 };
 let dragon = null; // null on any level without a dragon; built in setupDragonForLevel()
@@ -253,19 +303,6 @@ let dragonTriggerRunePos = null; // {x,y} world center of that rune — kept for
 let chaseMusic; 
 
 let chaseCamZoomTarget = 0.8; // camZoom eases toward this every frame (0.8 idle, 0.7 chasing)
-
-// BREADCRUMB TRAIL — fixes the "dragon rams into walls on sharp
-// turns" problem. Instead of homing straight at the player's
-// live x/y, the dragon chases a moving waypoint that walks back
-// along the player's actual path, so it takes the same corners
-// the player took.
-// ------------------------------------------------------------
-const TRAIL_RECORD_INTERVAL = 6; // frames between breadcrumbs (lower = finer path, more memory)
-const TRAIL_MAX_LENGTH = 400; // oldest points drop off once exceeded
-const TRAIL_WAYPOINT_RADIUS = 12; // how close the dragon must get before advancing to the next breadcrumb
- 
-let playerTrail = []; // [{x,y}, ...] oldest first
-let trailRecordTimer = 0;
  
 // The two fish-area checkpoints that bracket the encounter.
 // Indices into your existing `checkpoints` array.
@@ -306,19 +343,25 @@ let whirlpoolTimer = 0;
 
 let startArea;
 let startbg;
+let startbg2;
 let birdArea;
 let fishArea;
 let endArea;
 let keyTilesList = [];
 let tiles = [];
 
-let startArea2;
 let birdArea2;
 let fishArea2;
+
+let fishArea3;
+let birdArea3;
+let endArea3;
 
 let waterTiles = [];
 let grassImg;
 let groundImg;
+let grass2Img;
+let ground2Img;
 let barkImg;
 let seaweedImg;
 let sandImg;
@@ -335,14 +378,17 @@ let portalOpenImg;
 let windImg;
 let portalImg;
 let bridgeImg;
-let flagImg;
+let flagDownImg;
+let flagUpImg;
 let barrierImg;
 let level1MessageImg;
 
 let fishareaBG;
 let fishareaOverlay;
 let cavebg;
+let cavebg2;
 let endbg;
+
 
 let fishareaBG2;
 let fishareaOverlay2;
@@ -350,6 +396,8 @@ let fishareaOverlay2;
 let fishSheet; //fish sprite sheet
 let birdSheet; //bird sprite sheet
 
+
+//sound effects
 let diesound;
 let runesound;
 let walkingsound;
@@ -439,14 +487,10 @@ const LEVELS = {
     playerStart: { x: 4 * TILE_SIZE, y: 17 * TILE_SIZE },
     buildWindZones: buildLevel1WindZones,
   },
-  [LEVEL_TWO]: {
+[LEVEL_TWO]: {
     areas: [
-      { key: "start", json: "startArea2" },
-      {
-        key: "bird",
-        json: "birdArea2",
-        // bg: 'cavebg2', overlay: 'fishareaOverlay2',
-      },
+      { key: "start", json: "startArea2", bg: "startarea2Img" },
+      { key: "bird", json: "birdArea2", bg: "cavebg2"},
       {
         key: "fish",
         json: "fishArea2",
@@ -458,7 +502,54 @@ const LEVELS = {
     playerStart: { x: 4 * TILE_SIZE, y: 10 * TILE_SIZE },
     buildWindZones: buildLevel2WindZones,
   },
+  [LEVEL_THREE]: {
+    areas: [
+      { key: "fish", json: "fishArea3" },
+      {
+        key: "bird",
+        json: "birdArea3",
+        // bg: 'cavebg2', overlay: 'fishareaOverlay2',
+      },
+      {
+        key: "end",
+        json: "endArea3",
+      },
+    ],
+    playerStart: { x: 20 * TILE_SIZE, y: 20 * TILE_SIZE },
+  },
 };
+
+// ------------------------------------------------------------
+// RESPAWN DELAY
+// Freezes gameplay updates for a short window after death, so
+// the player doesn't instantly snap back to the checkpoint.
+// ------------------------------------------------------------
+const RESPAWN_DELAY_FRAMES = 10; // ~1 second at 60fps
+let isRespawning = false;
+let respawnTimer = 0;
+let pendingRespawnFn = null;
+
+function beginRespawnDelay(respawnFn) {
+  if (isRespawning) return; // already dying — ignore extra triggers
+  isRespawning = true;
+  respawnTimer = RESPAWN_DELAY_FRAMES;
+  pendingRespawnFn = respawnFn;
+
+  player.vx = 0;
+  player.vy = 0;
+  player.flapVelocity = 0;
+}
+
+function updateRespawnDelay() {
+  if (!isRespawning) return;
+  respawnTimer--;
+  if (respawnTimer <= 0) {
+    isRespawning = false;
+    const fn = pendingRespawnFn;
+    pendingRespawnFn = null;
+    if (fn) fn();
+  }
+}
 
 // ============================================================
 // DEBUG MODE
@@ -470,7 +561,7 @@ let debugModeActive = false;
 const DEBUG_KEY_MAP = {
   "1": { screen: LEVEL_ONE,    label: "Level 1" },
   "2": { screen: LEVEL_TWO,    label: "Level 2" },
-  // "3": { screen: LEVEL_THREE, label: "Level 3" },  // 
+ "3": { screen: LEVEL_THREE, label: "Level 3" },  // 
 };
 
 function isDebugModeActive() {
@@ -534,6 +625,11 @@ function preload() {
   fishArea2 = loadJSON("data/2fisharea.json");
   birdArea2 = loadJSON("data/2birdarea.json");
 
+  fishArea3 = loadJSON("data/3fisharea.json");
+  birdArea3 = loadJSON("data/3birdarea.json");
+  endArea3 = loadJSON("data/3endarea.json");
+
+
   fishSheet = loadImage("assets/images/fish.png");
 
   titleFrame1 = loadImage("assets/images/Title frame1.png");
@@ -541,6 +637,8 @@ function preload() {
 
   grassImg = loadImage("assets/images/grass.png");
   groundImg = loadImage("assets/images/ground.png");
+  grass2Img = loadImage("assets/images/grass2.png");
+  ground2Img = loadImage("assets/images/ground2.png");
   barkImg = loadImage("assets/images/bark.png");
 
   seaweedImg = loadImage("assets/images/seaweed.png");
@@ -558,7 +656,8 @@ function preload() {
   waterSurfaceImg = loadImage("assets/images/watersurface.png");
   fishareaBG = loadImage("assets/images/fishareaBG.png");
   fishareaOverlay = loadImage("assets/images/fishareaoverlay.png");
-  cavebg = loadImage("assets/images/cavebg.png");
+  cavebg = loadImage("assets/images/cavebg.png"); //bird area background level 1
+  cavebg2 = loadImage("assets/images/2birdarea.png"); //bird area background level 2 
   birdSheet = loadImage("assets/images/bird.png");
   humanSheet = loadImage("assets/images/human.png");
   whirlpoolImg = loadImage("assets/images/whirlpool.png");
@@ -569,10 +668,15 @@ function preload() {
   windImg = loadImage("assets/images/wind.png");
   portalImg = loadImage("assets/images/portalclosed.png");
   bridgeImg = loadImage("assets/images/bridge.png");
+  dragonSheet = loadImage("assets/images/dragonSheet.png");
+  dragonSleepingSheet = loadImage("assets/images/dragonSleeping.png");
 
   endbg = loadImage("assets/images/endareabg.png");
-  flagImg = loadImage("assets/images/flag.png");
+  flagDownImg = loadImage("assets/images/flagdown.png");
+  flagUpImg = loadImage("assets/images/flagup.png");
   level1MessageImg = loadImage("assets/images/Level1Message.png");
+
+  startarea2Img = loadImage("assets/images/2startarea.png");
 
   diesound = loadSound("assets/sounds/die.mp3");
   runesound = loadSound("assets/sounds/rune.mp3");
@@ -587,7 +691,7 @@ function preload() {
   // chaseMusic = loadSound("assets/sounds/chase.mp3");
 
 
-  rawAssets = {
+    rawAssets = {
     startArea,
     birdArea,
     fishArea,
@@ -596,13 +700,18 @@ function preload() {
     birdArea2,
     fishArea2,
     startbg,
+    startarea2Img,
     fishareaBG,
     endbg,
     cavebg,
-    // cavebg2,
+    cavebg2,
     //fishareaBG2,
     fishareaOverlay,
     //fishareaOverlay2,
+
+    fishArea3,
+  birdArea3,
+  endArea3,
   };
 }
 
@@ -620,6 +729,8 @@ function setup() {
   HUMAN_SPRITE.frameHeight = humanSheet.height / 2;
   WIND_SPRITE.frameWidth = windImg.width / WIND_SPRITE.numFrames;
   WIND_SPRITE.frameHeight = windImg.height;
+  DRAGON_SLEEPING_SPRITE.frameWidth = dragonSleepingSheet.width / DRAGON_SLEEPING_SPRITE.numFrames;
+  DRAGON_SLEEPING_SPRITE.frameHeight = dragonSleepingSheet.height;
 
   if (birdBGsound) birdBGsound.setVolume(0.15);
 
@@ -714,9 +825,8 @@ function loadLevel(levelId) {
 
   dragonSpawnTiles = [];
   camZoom = 0.8;
+  batSpawnTiles = [];
   chaseCamZoomTarget = 0.8; // camera zooms out during chase phase
-playerTrail = [];
-  trailRecordTimer = 0;
 
   levelAreas = computeAreaLayout(def);
   WORLD_W = Math.max(...levelAreas.map((a) => a.bounds.x + a.bounds.w));
@@ -739,6 +849,7 @@ playerTrail = [];
   for (const k of keyTilesList) keyMap.set(getWorldTileKey(k.x, k.y), false);
   
   setupDragonForLevel(levelId);
+  setupBatsForLevel(levelId);
 
   windZones = def.buildWindZones ? def.buildWindZones(levelAreas) : [];
 
@@ -808,16 +919,16 @@ function buildLevel2WindZones(levelAreas) {
   const bird = findArea(levelAreas, "bird");
   const zones = [];
 
-
   // Zone: human -> bird, placed at the start/bird boundary
-zones.push({
-x: start.bounds.x + start.bounds.w - 9 * TILE_SIZE,
-    y: 0,
+  zones.push({
+    x: start.bounds.x + start.bounds.w - 5 * TILE_SIZE,
+    y: 1 * TILE_SIZE,
     w: 6 * TILE_SIZE,
     h: start.bounds.h + 6 * TILE_SIZE,
     fromForm: FORM_HUMAN,
     transformTo: FORM_BIRD,
     hasCeiling: true,
+    delayFrames: 5, // shorter delay just for this zone — was using the global 25
   });
 
   return zones;
@@ -869,7 +980,7 @@ function drawInstructions() {
 function draw() {
   background(20);
   if (currentScreen === TITLE_SCREEN) drawTitleScreen();
-  else if (currentScreen === LEVEL_ONE || currentScreen === LEVEL_TWO)
+  else if (currentScreen === LEVEL_ONE || currentScreen === LEVEL_TWO || currentScreen === LEVEL_THREE)
     drawLevelScreen();
 
   drawDebugOverlay();
@@ -891,12 +1002,11 @@ function drawLevelScreen() {
   for (const area of levelAreas) {
     if (shouldDrawArea(area)) drawTiles(area);
   }
-
+/** 
   if (gameState === STATE_PLAY) {
     if (!isDebugModeActive()) {
       updateMoveSpeed();
       handleInput();
-            recordPlayerTrail();
       updateHumanBGSound();
       updateBirdBGSound();
        updateNoiseLevel();
@@ -932,12 +1042,70 @@ function drawLevelScreen() {
       checkCheckpoints();
       checkDragonCollision();
       updateDragon();
+      updateBats();
+      checkBatCollision();
+      checkDragonFightTrigger();
     }
 
     drawWindZones();
     animateCharacter();
     drawPlayer();
     drawDragon();
+    drawBats();
+    **/
+   if (gameState === STATE_PLAY) {
+    if (!isDebugModeActive()) {
+      updateRespawnDelay();
+
+      if (!isRespawning) {
+        updateMoveSpeed();
+        handleInput();
+        updateHumanBGSound();
+        updateBirdBGSound();
+        updateNoiseLevel();
+        updateWalkingSound();
+        updateFlappingSound();
+        updateFishAreaSound();
+
+        checkWindZones();
+        checkWaterTransform();
+        enforceLocationForm();
+
+        whirlpoolTimer++;
+        if (whirlpoolTimer >= WHIRLPOOL_SPRITE.animSpeed) {
+          whirlpoolTimer = 0;
+          whirlpoolFrame = (whirlpoolFrame + 1) % WHIRLPOOL_SPRITE.numFrames;
+        }
+        windTimer++;
+        if (windTimer >= WIND_SPRITE.animSpeed) {
+          windTimer = 0;
+          windFrame = (windFrame + 1) % WIND_SPRITE.numFrames;
+        }
+        runeTimer++;
+        if (runeTimer >= RUNE_SPRITE.animSpeed) {
+          runeTimer = 0;
+          runeFrame = (runeFrame + 1) % RUNE_SPRITE.numFrames;
+        }
+
+        resolveSolidCollisions();
+        checkWhirlpools();
+        checkKeys();
+        checkPortalEntrance();
+        checkHazardCollisions();
+        checkCheckpoints();
+        checkDragonCollision();
+        updateDragon();
+        updateBats();
+        checkBatCollision();
+        checkDragonFightTrigger();
+      }
+    }
+
+    drawWindZones();
+    animateCharacter();
+    drawPlayer();
+    drawDragon();
+    drawBats();
 
     const fish = findArea(levelAreas, "fish");
     if (fish && fish.overlay) {
@@ -955,6 +1123,8 @@ function drawLevelScreen() {
     drawEndScreen();
   }
 }
+
+
 let DEBUG_SHOW_DRAGON_HITBOX = true; // flip to false, or toggle at runtime (see keyPressed note)
 
 function drawDragonDebugHitbox() {
@@ -1009,6 +1179,9 @@ function drawDragonDebugHitbox() {
 
 function drawNoiseHUD() {
   if (currentScreen !== LEVEL_TWO || player.form !== FORM_BIRD) return;
+  
+  const bird = findArea(levelAreas, "bird");
+  if (!bird || player.x < bird.bounds.x) return; // don't show until actually inside the bird area
 
   const barW = 140;
   const barH = 14;
@@ -1109,12 +1282,12 @@ function checkWindZones() {
       player.windTimer++;
       tryTransform(z);
 
-      if (
+           if (
   (currentScreen === LEVEL_ONE || currentScreen === LEVEL_TWO) &&
-  player.windTimer > WIND_DELAY_FRAMES
+  player.windTimer > (z.delayFrames ?? WIND_DELAY_FRAMES)
 ) {
         const rampProgress = min(
-          (player.windTimer - WIND_DELAY_FRAMES) / WIND_RAMP_FRAMES,
+          (player.windTimer - (z.delayFrames ?? WIND_DELAY_FRAMES)) / WIND_RAMP_FRAMES,
           1,
         );
         const currentForce = WIND_FORCE * rampProgress;
@@ -1356,6 +1529,15 @@ function enforceLocationForm() {
     return;
   }
 
+  // Level 2: anywhere before the wind current, player must be human —
+  // including if they fly/walk backward past it after already transforming.
+  if (currentScreen === LEVEL_TWO && windZones.length > 0) {
+    const windZoneStart = windZones[0].x;
+    if (player.x < windZoneStart && player.form !== FORM_HUMAN) {
+      player.form = FORM_HUMAN;
+    }
+  }
+
   const bird = findArea(levelAreas, "bird");
   if (!bird) return;
 
@@ -1368,7 +1550,6 @@ function enforceLocationForm() {
     player.form = FORM_BIRD;
   }
 }
-
 // ------------------------------------------------------------
 // updateCamera()
 // Smoothly moves the camera toward the player each frame.
@@ -1439,7 +1620,7 @@ function processJsonLayers(
     const isSeaweed = layer.name === SEAWEED_LAYER; // ADDED
     const isPortal = layer.name === PORTAL_LAYER;
     const isDragonSpawn = layer.name === DRAGON_SPAWN_LAYER;
-
+  const isBat = layer.name === BAT_LAYER;
 
     if (
       !isSolid &&
@@ -1450,7 +1631,8 @@ function processJsonLayers(
       !isWater &&
       !isSeaweed &&
       !isPortal &&
-      !isDragonSpawn
+      !isDragonSpawn &&
+      !isBat
     )
       continue;
 
@@ -1474,6 +1656,7 @@ function processJsonLayers(
         seaweedTiles.push(rect); // ADDED
       else if (isPortal) portalTiles.push(rect);
       else if (isDragonSpawn) dragonSpawnTiles.push(rect);
+      else if (isBat) batSpawnTiles.push(rect);
     }
   }
 }
@@ -1735,8 +1918,12 @@ function checkCheckpoints() {
   for (let i = activeCheckpointIndex + 1; i < checkpoints.length; i++) {
     const cp = checkpoints[i];
     const overlapsX =
-      player.x + player.r > cp.x && player.x - player.r < cp.x + cp.w;
-    if (overlapsX) {
+      player.x + player.r > cp.x - CHECKPOINT_TRIGGER_MARGIN &&
+      player.x - player.r < cp.x + cp.w + CHECKPOINT_TRIGGER_MARGIN;
+    const overlapsY =
+      player.y + player.r > cp.y - CHECKPOINT_TRIGGER_MARGIN &&
+      player.y - player.r < cp.y + cp.h + CHECKPOINT_TRIGGER_MARGIN;
+    if (overlapsX && overlapsY) {
       activeCheckpointIndex = i;
       lastCheckpoint = { x: cp.spawnX, y: cp.spawnY };
       console.log("Checkpoint activated:", i, lastCheckpoint);
@@ -1802,7 +1989,7 @@ function findClosestPassedCheckpoint(px, py) {
 // player health and does NOT grant invincibility (no flicker).
 // Respawns at the nearest passed checkpoint or start.
 // ------------------------------------------------------------
-function respawnFromHazard() {
+/**function respawnFromHazard() {
   if (diesound) diesound.play();
   if (walkingsound && walkingsound.isPlaying()) walkingsound.stop();
   if (flappingsound && flappingsound.isPlaying()) flappingsound.stop();
@@ -1822,6 +2009,30 @@ function respawnFromHazard() {
 
   camX = constrain(player.x - width / 2, 0, WORLD_W - width);
   camY = constrain(player.y - height / 2, 0, WORLD_H - height);
+}**/
+function respawnFromHazard() {
+  if (isRespawning) return; // already dying — ignore extra triggers
+
+  if (diesound) diesound.play();
+  if (walkingsound && walkingsound.isPlaying()) walkingsound.stop();
+  if (flappingsound && flappingsound.isPlaying()) flappingsound.stop();
+  if (fishareasound && fishareasound.isPlaying()) fishareasound.stop();
+
+  beginRespawnDelay(() => {
+    const spawn =
+      lastCheckpoint ||
+      findClosestPassedCheckpoint(player.x, player.y) ||
+      playerStart;
+
+    player.x = spawn.x;
+    player.y = spawn.y;
+    player.vy = 0;
+    player.bounceVX = 0;
+    player.bounceVY = 0;
+
+    camX = constrain(player.x - width / 2, 0, WORLD_W - width);
+    camY = constrain(player.y - height / 2, 0, WORLD_H - height);
+  });
 }
 
 function setupDragonForLevel(levelId) {
@@ -1831,7 +2042,7 @@ function setupDragonForLevel(levelId) {
   fishCheckpointBeforeDragon = -1;
   fishCheckpointAfterDragon = -1;
  
-  if (levelId !== LEVEL_TWO) return; // only level 2 has a dragon for now
+if (levelId !== LEVEL_TWO && levelId !== LEVEL_THREE) return; // only these have dragons
   if (dragonSpawnTiles.length === 0) {
     console.warn('setupDragonForLevel: no "dragon spawn" tiles found for', levelId);
     return;
@@ -1855,14 +2066,11 @@ function setupDragonForLevel(levelId) {
   h: DRAGON_CONFIG.tileSpan * TILE_SIZE,
   state: DRAGON_STATE.SLEEPING,
   facing: "left",
-  trailIndex: 0,
   health: DRAGON_CONFIG.maxHealth,
   maxHealth: DRAGON_CONFIG.maxHealth,
   wakeGracePeriod: 0, // ADD THIS
 };
  
-  playerTrail = [{ x: dragonSpawnPoint.x, y: dragonSpawnPoint.y }];
-  trailRecordTimer = 0;
 
   // "The rune next to it" — closest key tile to the dragon's spawn point.
   // No per-tile metadata needed in Tiled; proximity is enough to identify it.
@@ -1903,7 +2111,6 @@ if (fish) {
 }
 }
  
-
 function wakeDragon() {
   if (!dragon || dragon.state !== DRAGON_STATE.SLEEPING) return;
   dragon.state = DRAGON_STATE.CHASING;
@@ -1914,6 +2121,93 @@ function wakeDragon() {
   dragonPath = [];
 dragonPathIndex = 0;
 dragonPathRecalcTimer = DRAGON_PATH_RECALC_INTERVAL; // forces recalc on the very next updateDragon() call
+}
+
+// ------------------------------------------------------------
+// BATS (Level 2 only)
+// Two-state machine: SLEEPING (parked at spawn, drawn as a
+// placeholder box) -> AWAKE (homes in on the bird every frame).
+// Waking is permanent — batsWoken never resets, so re-triggering
+// either wake condition after the fact is a harmless no-op.
+// ------------------------------------------------------------
+function setupBatsForLevel(levelId) {
+  bats = [];
+  batsWoken = false;
+  secondRuneKey = null;
+
+  if (levelId !== LEVEL_TWO) return;
+
+  for (const t of batSpawnTiles) {
+    const spawnX = t.x + t.w / 2;
+    const spawnY = t.y + t.h / 2;
+    bats.push({
+      x: spawnX,
+      y: spawnY,
+      spawnX,
+      spawnY,
+      state: BAT_STATE.SLEEPING,
+      speed: PLAYER_SPEED * BAT_SPEED_MULTIPLIER, // 150% of the bird's move speed
+    });
+  }
+}
+
+function wakeAllBats() {
+  if (batsWoken) return; // already triggered — never re-fire, never re-sleep
+  batsWoken = true;
+
+  for (const b of bats) {
+    b.state = BAT_STATE.AWAKE;
+  }
+  console.log("Bats awakened — chase started.");
+}
+
+function resetBats() {
+  batsWoken = false;
+  for (const b of bats) {
+    b.state = BAT_STATE.SLEEPING;
+    b.x = b.spawnX;
+    b.y = b.spawnY;
+  }
+
+  // Un-collect the specific rune that triggered the wake — same pattern
+  // as the dragon's trigger rune reset in respawnFromDragon().
+  if (secondRuneKey) {
+    keyMap.set(secondRuneKey, false);
+    keyCollected = 1; // reset to 1 so the player has to re-collect the 2nd rune
+    portalUnlocked = portalIsUnlocked();
+  }
+  secondRuneKey = null;
+}
+
+
+function updateBats() {
+  if (currentScreen !== LEVEL_TWO) return; // level restriction
+
+  for (const b of bats) {
+    if (b.state !== BAT_STATE.AWAKE) continue; // sleeping bats stay at spawn
+
+    const dx = player.x - b.x;
+    const dy = player.y - b.y;
+    const d = Math.sqrt(dx * dx + dy * dy) || 1;
+
+    b.x += (dx / d) * b.speed;
+    b.y += (dy / d) * b.speed;
+  }
+}
+
+// TEMP placeholder rendering — swap this function's body for real
+// bat sprites later; updateBats()/wakeAllBats() never need to change.
+function drawBats() {
+  if (currentScreen !== LEVEL_TWO || bats.length === 0) return;
+
+  push();
+  rectMode(CENTER);
+  noStroke();
+  fill(255, 20, 147); // pink placeholder box
+  for (const b of bats) {
+    rect(b.x, b.y, TILE_SIZE * 0.8, TILE_SIZE * 0.8);
+  }
+  pop();
 }
  
 function dragonInSeaweed() {
@@ -1927,35 +2221,6 @@ function dragonInSeaweed() {
   }
   return false;
 }
- 
-// Records the player's position periodically so the dragon has a
-// path to retrace. Call this every frame — it self-throttles via
-// TRAIL_RECORD_INTERVAL. Only bothers recording when a dragon exists.
-function recordPlayerTrail() {
-  if (!dragon) return;
- 
-  trailRecordTimer++;
-  if (trailRecordTimer < TRAIL_RECORD_INTERVAL) return;
-  trailRecordTimer = 0;
- 
-  const last = playerTrail[playerTrail.length - 1];
-  if (!last || dist(last.x, last.y, player.x, player.y) > 4) {
-    playerTrail.push({ x: player.x, y: player.y });
-  }
- 
-  // Trim from the front once the trail gets long, keeping trailIndex
-  // pointing at the same breadcrumb (shift its index down to match).
-  if (playerTrail.length > TRAIL_MAX_LENGTH) {
-    const trimCount = playerTrail.length - TRAIL_MAX_LENGTH;
-    playerTrail.splice(0, trimCount);
-    dragon.trailIndex = Math.max(0, dragon.trailIndex - trimCount);
-  }
-}
-
-// Moves the dragon along the breadcrumb trail toward the player,
-// then resolves it against solid tiles exactly like the player.
-// Called every frame while chasing.
-
 // Moves the dragon toward the player. Called every frame while chasing.
 function updateDragon() {
   if (!dragon || dragon.state !== DRAGON_STATE.CHASING) return;
@@ -2049,13 +2314,28 @@ function checkDragonCollision() {
   }
 }
  
+function checkBatCollision() {
+  if (currentScreen !== LEVEL_TWO || player.invincible) return;
+
+  for (const b of bats) {
+    if (b.state !== BAT_STATE.AWAKE) continue;
+
+    const d = dist(player.x, player.y, b.x, b.y);
+    if (d < player.r + TILE_SIZE * 0.4) {
+      resetBats();
+      respawnFromHazard();
+      break;
+    }
+  }
+}
+
 // Eases camZoom toward chaseCamZoomTarget. Call this every frame
 // (e.g. right next to updateCamera()) — it's a no-op once camZoom
 // has caught up to the target.
 function updateCamZoom() {
   camZoom = lerp(camZoom, chaseCamZoomTarget, 0.03);
 }
-function respawnFromDragon() {
+/**function respawnFromDragon() {
   if (diesound) diesound.play();
   stopAllGameSounds();
  
@@ -2070,8 +2350,8 @@ function respawnFromDragon() {
     player.x = cp.spawnX;
     player.y = cp.spawnY;
     player.stamina = FISH_STAMINA_MAX;
-player.flapVelocity = 0;
-player.flapQueued = false;
+    player.flapVelocity = 0;
+    player.flapQueued = false;
  
     dragon.state = DRAGON_STATE.CHASING;
     dragon.x = player.x - DRAGON_CONFIG.behindOffsetX;
@@ -2080,8 +2360,8 @@ player.flapQueued = false;
     chaseCamZoomTarget = 0.7;
 
     dragonPath = [];
-dragonPathIndex = 0;
-dragonPathRecalcTimer = DRAGON_PATH_RECALC_INTERVAL; // forces recalc on the very next updateDragon() call
+    dragonPathIndex = 0;
+    dragonPathRecalcTimer = DRAGON_PATH_RECALC_INTERVAL; // forces recalc on the very next updateDragon() call
 
     if (chaseMusic && !chaseMusic.isPlaying()) chaseMusic.loop();
   } else {
@@ -2114,12 +2394,79 @@ dragonPathRecalcTimer = DRAGON_PATH_RECALC_INTERVAL; // forces recalc on the ver
   player.vx = 0;
   player.bounceVX = 0;
   player.bounceVY = 0;
-player.stamina = FISH_STAMINA_MAX;
-player.flapVelocity = 0;
-player.flapQueued = false;
+  player.stamina = FISH_STAMINA_MAX;
+  player.flapVelocity = 0;
+  player.flapQueued = false;
 
   camX = constrain(player.x - width / 2, 0, WORLD_W - width);
   camY = constrain(player.y - height / 2, 0, WORLD_H - height);
+}**/
+
+function respawnFromDragon() {
+  if (isRespawning) return; // already dying — ignore extra triggers
+
+  if (diesound) diesound.play();
+  stopAllGameSounds();
+
+  beginRespawnDelay(() => {
+    const reachedAfter =
+      fishCheckpointAfterDragon !== -1 &&
+      activeCheckpointIndex >= fishCheckpointAfterDragon;
+
+    if (reachedAfter) {
+      const cp = checkpoints[fishCheckpointAfterDragon];
+      player.x = cp.spawnX;
+      player.y = cp.spawnY;
+      player.stamina = FISH_STAMINA_MAX;
+      player.flapVelocity = 0;
+      player.flapQueued = false;
+
+      dragon.state = DRAGON_STATE.CHASING;
+      dragon.x = player.x - DRAGON_CONFIG.behindOffsetX;
+      dragon.y = player.y;
+
+      chaseCamZoomTarget = 0.7;
+
+      dragonPath = [];
+      dragonPathIndex = 0;
+      dragonPathRecalcTimer = DRAGON_PATH_RECALC_INTERVAL;
+
+      if (chaseMusic && !chaseMusic.isPlaying()) chaseMusic.loop();
+    } else {
+      const cpIndex =
+        fishCheckpointBeforeDragon !== -1
+          ? fishCheckpointBeforeDragon
+          : activeCheckpointIndex;
+      const cp = checkpoints[cpIndex] || null;
+      const spawn = cp ? { x: cp.spawnX, y: cp.spawnY } : lastCheckpoint || playerStart;
+
+      player.x = spawn.x;
+      player.y = spawn.y;
+
+      dragon.state = DRAGON_STATE.SLEEPING;
+      dragon.x = dragonSpawnPoint.x;
+      dragon.y = dragonSpawnPoint.y;
+
+      if (dragonTriggerRuneKey) {
+        keyMap.set(dragonTriggerRuneKey, false);
+        keyCollected = 2;
+        portalUnlocked = portalIsUnlocked();
+      }
+
+      chaseCamZoomTarget = 0.8;
+    }
+
+    player.vy = 0;
+    player.vx = 0;
+    player.bounceVX = 0;
+    player.bounceVY = 0;
+    player.stamina = FISH_STAMINA_MAX;
+    player.flapVelocity = 0;
+    player.flapQueued = false;
+
+    camX = constrain(player.x - width / 2, 0, WORLD_W - width);
+    camY = constrain(player.y - height / 2, 0, WORLD_H - height);
+  });
 }
  
 // ============================================================
@@ -2132,26 +2479,50 @@ player.flapQueued = false;
  
 function drawDragon() {
   if (!dragon) return;
+
   push();
   imageMode(CENTER);
- 
-  const bodyColor =
-    dragon.state === DRAGON_STATE.SLEEPING
-      ? color(120, 40, 40, 180) // dimmer while asleep
-      : color(200, 30, 30);
- 
-  fill(bodyColor);
-  noStroke();
-  ellipse(dragon.x, dragon.y, dragon.r * 2, dragon.r * 1.5);
- 
-  // Simple "asleep" indicator until you have real animation frames
+
   if (dragon.state === DRAGON_STATE.SLEEPING) {
-    fill(255, 255, 255, 180);
-    textAlign(CENTER, CENTER);
-    textSize(14);
-    text("z z z", dragon.x + dragon.r * 0.6, dragon.y - dragon.r * 0.8);
+    // Animate sleeping sprite with pingpong
+    dragonSleepTimer++;
+    if (dragonSleepTimer >= DRAGON_SLEEPING_SPRITE.animSpeed) {
+      dragonSleepTimer = 0;
+      dragonSleepFrame = (dragonSleepFrame + 1) % DRAGON_SLEEPING_SPRITE.numFrames;
+    }
+
+    const sx = dragonSleepFrame * DRAGON_SLEEPING_SPRITE.frameWidth;
+    const dw = DRAGON_SLEEPING_SPRITE.frameWidth * DRAGON_SPRITE.scale;
+    const dh = DRAGON_SLEEPING_SPRITE.frameHeight * DRAGON_SPRITE.scale;
+
+    if (dragonSleepingSheet) {
+      image(dragonSleepingSheet, dragon.x, dragon.y, dw, dh,
+            sx, 0, DRAGON_SLEEPING_SPRITE.frameWidth, DRAGON_SLEEPING_SPRITE.frameHeight);
+    }
+
+  } else {
+    // Animate flying/idle sprite
+    dragonAnimTimer++;
+    if (dragonAnimTimer >= DRAGON_SPRITE.animSpeed) {
+      dragonAnimTimer = 0;
+      dragonAnimFrame = (dragonAnimFrame + 1) % DRAGON_SPRITE.numFrames;
+    }
+
+    const row = dragon.facing === "left"
+      ? DRAGON_SPRITE.rows.flyingLeft
+      : DRAGON_SPRITE.rows.flyingRight;
+
+    const sx = dragonAnimFrame * DRAGON_SPRITE.frameWidth;
+    const sy = row * DRAGON_SPRITE.frameHeight;
+    const dw = DRAGON_SPRITE.frameWidth * DRAGON_SPRITE.scale;
+    const dh = DRAGON_SPRITE.frameHeight * DRAGON_SPRITE.scale;
+
+    if (dragonSheet) {
+      image(dragonSheet, dragon.x, dragon.y, dw, dh,
+            sx, sy, DRAGON_SPRITE.frameWidth, DRAGON_SPRITE.frameHeight);
+    }
   }
- 
+
   pop();
 }
  
@@ -2184,7 +2555,15 @@ function checkKeys() {
       keyCollected++;
       portalUnlocked = portalIsUnlocked();
 
+    // Bats (Level 2): the 2nd rune spikes noise to max and wakes them.
+      if (currentScreen === LEVEL_TWO && keyCollected === 2 && !batsWoken) {
+        secondRuneKey = mapKey; // remember which physical rune this was
+        player.noiseLevel = NOISE_LEVEL_MAX;
+        wakeAllBats();
+      }
+
       if (runesound) runesound.play(); // NEW — plays on every key pickup
+
       console.log("Rune collected:", keyCollected, "/", keyTotal);
 
       if (dragon && mapKey === dragonTriggerRuneKey && dragon.state === DRAGON_STATE.SLEEPING) {
@@ -2260,10 +2639,9 @@ function updateNoiseLevel() {
     player.noiseLevel = max(player.noiseLevel - NOISE_DECAY_RATE, 0);
   }
 
-  // Placeholder for future bat encounter:
-  // if (player.noiseLevel >= NOISE_LEVEL_MAX) {
-  //   triggerBats();
-  // }
+    if (player.noiseLevel >= NOISE_LEVEL_MAX && !batsWoken) {
+    wakeAllBats();
+  }
 }
 
 function updateMoveSpeed() {
@@ -2370,13 +2748,7 @@ function drawTiles(area) {
         rect(x, y, TILE_SIZE, TILE_SIZE);
       }
     }
-    const fishArea = findArea(levelAreas, "fish");
-    const fishAreaStartX = fishArea
-      ? fishArea.bounds.x
-      : mapXOffset + area.bounds.w;
-    const buffer = -7 * TILE_SIZE;
-    const caveX = fishAreaStartX - buffer - area.bg.width;
-    image(area.bg, caveX, mapYOffset);
+   image(area.bg, mapXOffset, mapYOffset);
   }
 
   for (let l = layers.length - 1; l > -1; l--) {
@@ -2474,13 +2846,15 @@ function drawTiles(area) {
         fill(0, 0, 0, 0);
         rect(x, y, TILE_SIZE, TILE_SIZE);
       } else if (layer.name === "grass") {
-        grassImg
-          ? image(grassImg, x, y, TILE_SIZE, TILE_SIZE)
+        const grassSprite = currentScreen === LEVEL_TWO ? grass2Img : grassImg;
+        grassSprite
+          ? image(grassSprite, x, y, TILE_SIZE, TILE_SIZE)
           : (fill(tileColor(layer.name, t.id)),
             rect(x, y, TILE_SIZE, TILE_SIZE));
       } else if (layer.name === "ground") {
-        groundImg
-          ? image(groundImg, x, y, TILE_SIZE, TILE_SIZE)
+        const groundSprite = currentScreen === LEVEL_TWO ? ground2Img : groundImg;
+        groundSprite
+          ? image(groundSprite, x, y, TILE_SIZE, TILE_SIZE)
           : (fill(tileColor(layer.name, t.id)),
             rect(x, y, TILE_SIZE, TILE_SIZE));
       } else if (layer.name === "bark") {
@@ -2565,14 +2939,16 @@ function drawTiles(area) {
           fill(portalUnlocked ? 80 : 40, 180, 80);
           rect(x, y, TILE_SIZE, TILE_SIZE);
         }
-      } else if (layer.name === CHECKPOINT_LAYER) {
-        for (const cp of checkpoints) {
+            } else if (layer.name === CHECKPOINT_LAYER) {
+        for (let i = 0; i < checkpoints.length; i++) {
+          const cp = checkpoints[i];
           if (abs(x - cp.x) < 1 && abs(y - cp.y) < 1) {
             const flagW = TILE_SIZE * 1.2;
             const flagH = TILE_SIZE * 2.2;
+            const flagSprite = i <= activeCheckpointIndex ? flagUpImg : flagDownImg;
             imageMode(CORNER);
             image(
-              flagImg,
+              flagSprite,
               x + TILE_SIZE / 2 - flagW / 2,
               y - flagH,
               flagW,
