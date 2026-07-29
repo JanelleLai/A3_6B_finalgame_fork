@@ -15,8 +15,8 @@ let currentScreen = TITLE_SCREEN;
 // Keeping that in one place makes the app easy to reason about.
 function goToScreen(screen) {
   currentScreen = screen;
-  if (screen === LEVEL_ONE || screen === LEVEL_TWO || screen === LEVEL_THREE) loadLevel(screen);
-}
+if (screen === LEVEL_ONE || screen === LEVEL_TWO || screen === LEVEL_THREE)
+    loadLevel(screen);}
 
 // ============================================================
 // BUTTON HELPERS
@@ -283,6 +283,8 @@ let player = {
   bounceVY: 0,
   isGrounded: false,
   jumpCooldown: 0,
+
+    carryingRock: false, // ADDED — level 3 phase-2 rock-throw state
 };
 
 //bats stuff
@@ -306,9 +308,9 @@ const DRAGON_STATE = {
   FIGHTING: "fighting",  
 };
 const DRAGON_CONFIG = {
-  tileSpan: 2, // hitbox is 3x3 tiles, like the request — same units as TILE_SIZE  
+  tileSpan: 2, // hitbox is 2x2 tiles, like the request — same units as TILE_SIZE  
   chaseSpeed: 4.3, // base speed while chasing, before seaweed slow
-  seaweedSlowFactor: 1.6, // dragon is slowed (player uses 2.5, see SEAWEED_SLOW_FACTOR)
+  seaweedSlowFactor: 1.5, // dragon is slowed (player uses 2.5, see SEAWEED_SLOW_FACTOR)
   behindOffsetX: 17 * TILE_SIZE, // how far left of the player it reappears after a post-CP2 death
   maxHealth: 100, // not used this level — wired up now so level 3 just reads/writes it
 };
@@ -318,9 +320,11 @@ let dragonSpawnPoint = null; // {x,y} centroid of dragonSpawnTiles — the sleep
 let dragonTriggerRuneKey = null; // getWorldTileKey() of the specific rune that wakes it
 let dragonTriggerRunePos = null; // {x,y} world center of that rune — kept for the debug overlay below
 let chaseMusic; 
+let dragonGrowl;
 
 let chaseCamZoomTarget = 0.8; // camZoom eases toward this every frame (0.8 idle, 0.7 chasing)
- 
+let level3CamZoomTarget = 0.8; 
+
 // The two fish-area checkpoints that bracket the encounter.
 // Indices into your existing `checkpoints` array.
 let fishCheckpointBeforeDragon = -1;
@@ -465,7 +469,8 @@ let portalTiles = []; // [{x,y,w,h}] portal/door tiles
 let seaweedTiles = []; // [{x,y,w,h}] world-space rects — slows the fish, doesn't block it
 const SEAWEED_LAYER = "seaweed";
 const SEAWEED_SLOW_FACTOR = 2.5; // divides moveSpeed — tune to taste for "150% slower"
-const REQUIRED_PORTAL_KEYS = 5;
+const REQUIRED_PORTAL_KEYS = 5; // fallback default, used if a level doesn't define requiredKeys
+let requiredPortalKeys = REQUIRED_PORTAL_KEYS; // set per-level in loadLevel()
 const PORTAL_LAYER = "door";
 
 // ------------------------------------------------------------
@@ -507,7 +512,7 @@ const LEVELS = {
 [LEVEL_TWO]: {
     areas: [
       { key: "start", json: "startArea2", bg: "startarea2Img" },
-      { key: "bird", json: "birdArea2", bg: "cavebg2"},
+      { key: "bird", json: "birdArea2", bg: "cavebg2" },
       {
         key: "fish",
         json: "fishArea2",
@@ -518,6 +523,7 @@ const LEVELS = {
     ],
     playerStart: { x: 4 * TILE_SIZE, y: 10 * TILE_SIZE },
     buildWindZones: buildLevel2WindZones,
+    requiredKeys: 4,
   },
   [LEVEL_THREE]: {
     areas: [
@@ -706,7 +712,11 @@ function preload() {
   if (birdBGsound) {
     birdBGsound.setVolume(0.15);
   }
-  // chaseMusic = loadSound("assets/sounds/chase.mp3");
+  chaseMusic = loadSound("assets/sounds/chaseMusic.mp3");
+  if (chaseMusic) {
+    chaseMusic.setVolume(0.2);
+  }
+  dragonGrowl = loadSound("assets/sounds/dragongrowl.mp3");
 
 
     rawAssets = {
@@ -747,8 +757,9 @@ function setup() {
   HUMAN_SPRITE.frameHeight = humanSheet.height / 2;
   WIND_SPRITE.frameWidth = windImg.width / WIND_SPRITE.numFrames;
   WIND_SPRITE.frameHeight = windImg.height;
-  DRAGON_SLEEPING_SPRITE.frameWidth = dragonSleepingSheet.width / DRAGON_SLEEPING_SPRITE.numFrames;
-  DRAGON_SLEEPING_SPRITE.frameHeight = dragonSleepingSheet.height;
+DRAGON_SLEEPING_SPRITE.frameWidth =
+    dragonSleepingSheet.width / DRAGON_SLEEPING_SPRITE.numFrames;
+      DRAGON_SLEEPING_SPRITE.frameHeight = dragonSleepingSheet.height;
   BAT_SPRITE.frameWidth = batFlySheet.width / BAT_SPRITE.numFrames;
   BAT_SPRITE.frameHeight = batFlySheet.height;
 
@@ -834,6 +845,7 @@ function loadLevel(levelId) {
   keyTotal = 0;
   keyCollected = 0;
   portalUnlocked = false;
+  requiredPortalKeys = def.requiredKeys ?? REQUIRED_PORTAL_KEYS;
   whirlpoolTiles = [];
   portalTiles = [];
   waterTiles = [];
@@ -1079,37 +1091,38 @@ updateBats();
 checkBatCollision();
       }
     }
+  }
 
-    drawWindZones();
-    animateCharacter();
-    drawPlayer();
-    drawDragon();
-    drawBats();
+  drawWindZones();
+  animateCharacter();
+  drawPlayer();
+  drawDragon();
+  drawBats();
 
-if (currentScreen === LEVEL_THREE && typeof drawLevel3BossFightWorld === "function") {
-      drawLevel3BossFightWorld();
-    }
+  if (currentScreen === LEVEL_THREE && typeof drawLevel3BossFightWorld === "function") {
+    drawLevel3BossFightWorld();
+  }
 
-    const fish = findArea(levelAreas, "fish");
-    if (fish && fish.overlay) {
-      image(fish.overlay, fish.bounds.x, fish.bounds.y, fish.bounds.w, 800);
-    }
+  const fish = findArea(levelAreas, "fish");
+  if (fish && fish.overlay) {
+    image(fish.overlay, fish.bounds.x, fish.bounds.y, fish.bounds.w, 800);
+  }
 
-    drawDragonDebugHitbox();
+  drawDragonDebugHitbox();
 
   pop();
   drawKeyHUD();
   drawNoiseHUD();
   if (currentScreen === LEVEL_THREE && typeof drawLevel3HUD === "function") {
-  drawLevel3HUD();
-}
+    drawLevel3HUD();
+  }
   drawInstructions();
   if (gameState === STATE_WIN && level1MessageImg) {
     stopAllGameSounds();
     drawEndScreen();
   }
 }
-}
+
 
 
 let DEBUG_SHOW_DRAGON_HITBOX = true; // flip to false, or toggle at runtime (see keyPressed note)
@@ -1340,6 +1353,18 @@ function drawWindZones() {
 // Bird -> fish is triggered by touching water directly.
 // ------------------------------------------------------------
 function checkWaterTransform() {
+  // Level 3 phase 2: player is locked in bird form for the rest of the
+  // fight — skip the normal water-triggered bird->fish transform, since
+  // the arena is full of water tiles.
+  if (
+    currentScreen === LEVEL_THREE &&
+    typeof level3Phase !== "undefined" &&
+    level3Phase === LEVEL3_PHASE.FLY
+  ) {
+    return;
+  }
+
+
   if (player.form === FORM_BIRD && playerInWater()) {
     player.form = FORM_FISH;
     console.log("Transformed into:", player.form);
@@ -1449,7 +1474,8 @@ function stopAllGameSounds() {
     birdBGsound,
     runesound,
     diesound,
-    //chaseMusic,
+    chaseMusic,
+    dragonGrowl,
   ];
   for (const s of sounds) {
     if (s && s.isPlaying && s.isPlaying()) {
@@ -1511,6 +1537,18 @@ function animateCharacter() {
 // let inStart = player.x < TILE_SIZE * startArea.mapWidth;
 
 function enforceLocationForm() {
+  // Level 3 phase 2: player is locked into bird form for the rest of the
+  // fight, regardless of standing over water tiles in the arena — this
+  // overrides the normal location-based form rules below.
+  if (
+    currentScreen === LEVEL_THREE &&
+    typeof level3Phase !== "undefined" &&
+    level3Phase === LEVEL3_PHASE.FLY
+  ) {
+    if (player.form !== FORM_BIRD) player.form = FORM_BIRD;
+    return;
+  }
+
   if (playerInWater()) {
     if (player.form !== FORM_FISH) player.form = FORM_FISH;
     return;
@@ -1838,7 +1876,6 @@ function resolveCircleRect(p, rect) {
       p.x += (dx / dist) * overlap;
       p.vx = 0;
     }
-
     return;
   }
 
@@ -1947,6 +1984,8 @@ player.flapQueued = false;
 
   camX = constrain(player.x - width / 2, 0, WORLD_W - width);
   camY = constrain(player.y - height / 2, 0, WORLD_H - height);
+
+  player.noiseLevel = 0;
 }
 
 // ------------------------------------------------------------
@@ -2023,6 +2062,8 @@ function respawnFromHazard() {
     camX = constrain(player.x - width / 2, 0, WORLD_W - width);
     camY = constrain(player.y - height / 2, 0, WORLD_H - height);
   });
+
+  player.noiseLevel = 0;
 }
 
 function setupDragonForLevel(levelId) {
@@ -2032,7 +2073,7 @@ function setupDragonForLevel(levelId) {
   fishCheckpointBeforeDragon = -1;
   fishCheckpointAfterDragon = -1;
  
-if (levelId !== LEVEL_TWO && levelId !== LEVEL_THREE) return; // only these have dragons
+  if (levelId !== LEVEL_TWO) return; // only these have dragons  
   if (dragonSpawnTiles.length === 0) {
     console.warn('setupDragonForLevel: no "dragon spawn" tiles found for', levelId);
     return;
@@ -2107,6 +2148,7 @@ function wakeDragon() {
   chaseCamZoomTarget = 0.7;
   if (chaseMusic && !chaseMusic.isPlaying()) chaseMusic.loop();
   console.log("Dragon woke up — chase started.");
+dragonGrowl.play();
 
   dragonPath = [];
 dragonPathIndex = 0;
@@ -2356,7 +2398,8 @@ function checkBatCollision() {
 // (e.g. right next to updateCamera()) — it's a no-op once camZoom
 // has caught up to the target.
 function updateCamZoom() {
-  camZoom = lerp(camZoom, chaseCamZoomTarget, 0.03);
+  const target = currentScreen === LEVEL_THREE ? level3CamZoomTarget : chaseCamZoomTarget;
+  camZoom = lerp(camZoom, target, 0.03);
 }
 /**function respawnFromDragon() {
   if (diesound) diesound.play();
@@ -2559,7 +2602,7 @@ function getWorldTileKey(x, y) {
 }
 
 function portalIsUnlocked() {
-  return keyCollected >= REQUIRED_PORTAL_KEYS;
+  return keyCollected >= requiredPortalKeys;
 }
 
 function checkKeys() {
@@ -2671,6 +2714,17 @@ function updateNoiseLevel() {
 }
 
 function updateMoveSpeed() {
+  // Level 3 phase 2: player is a bird flying over the arena's water —
+  // keep full bird speed instead of the fish-swim slowdown below.
+  if (
+    currentScreen === LEVEL_THREE &&
+    typeof level3Phase !== "undefined" &&
+    level3Phase === LEVEL3_PHASE.FLY
+  ) {
+    moveSpeed = PLAYER_SPEED;
+    return;
+  }
+
   if (playerInWater()) {
     moveSpeed = playerInSeaweed() ? 4 / SEAWEED_SLOW_FACTOR : 4;
   } else {
@@ -2774,7 +2828,18 @@ function drawTiles(area) {
         rect(x, y, TILE_SIZE, TILE_SIZE);
       }
     }
-   image(area.bg, mapXOffset, mapYOffset);
+    // Only draw cavebg for level 1 — level 2 uses cavebg2 positioned differently
+    if (currentScreen === LEVEL_ONE) {
+      const fishArea = findArea(levelAreas, "fish");
+      const fishAreaStartX = fishArea
+        ? fishArea.bounds.x
+        : mapXOffset + area.bounds.w;
+      const buffer = -7 * TILE_SIZE;
+      const caveX = fishAreaStartX - buffer - area.bg.width;
+      image(area.bg, caveX, mapYOffset);
+    } else {
+      image(area.bg, mapXOffset, mapYOffset);
+    }
   }
 
   for (let l = layers.length - 1; l > -1; l--) {
@@ -2944,7 +3009,7 @@ function drawTiles(area) {
         if (!isOpen) image(barrierImg, x, y, TILE_SIZE, TILE_SIZE);
       } else if (layer.name === PORTAL_LAYER) {
         const pImg =
-          keyCollected >= REQUIRED_PORTAL_KEYS
+          keyCollected >= requiredPortalKeys
             ? portalOpenImg
             : portalClosedImg;
         if (pImg) {
@@ -3270,9 +3335,22 @@ function keyPressed() {
   if (currentScreen === TITLE_SCREEN && key === "Enter") {
     goToScreen(LEVEL_ONE);
     return;
-  } else if (currentScreen === LEVEL_ONE && key === "Enter") {
+  } else if (gameState === STATE_WIN && currentScreen === LEVEL_ONE && key === "Enter") {
     goToScreen(LEVEL_TWO);
     return;
+} else if (gameState === STATE_WIN && currentScreen === LEVEL_TWO && key === "Enter") {
+    goToScreen(LEVEL_THREE);
+    return;
+}
+  // Level 3 phase 2 — Space throws the currently-carried rock at the
+  // boss (auto-aimed). No-op outside phase 2 or without a rock carried;
+  // see throwLevel3Rock() in levelthree_boss.js.
+  if (
+    key === " " &&
+    currentScreen === LEVEL_THREE &&
+    typeof throwLevel3Rock === "function"
+  ) {
+    throwLevel3Rock();
   }
 
   const canJump =
