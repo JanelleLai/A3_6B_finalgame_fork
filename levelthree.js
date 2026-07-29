@@ -1,293 +1,364 @@
 // ============================================================
 // LEVEL 3 — DRAGON BOSS FIGHT
-// Three stages: fish (charge + spikes) -> bird (stones) -> end
-// (human, give runes or attack). Stage state lives entirely here;
-// sketch.js only calls the init/update/draw/mousePressed hooks.
+// Single arena. Boss picks the player as a target, pauses
+// (telegraph), then charges in a straight line.
+//   - Charge hits player  -> player loses 1 heart
+//   - Charge misses, hits a wall -> boss takes 100 damage, stuns
+// Repeats until boss hp <= 0 (win) or player runs out of hearts
+// (stage restarts).
+//
+// PHASE 2 (boss hp <= 500): player is locked into bird form and
+// throws rocks picked up from pedestals at the boss (100 dmg/rock,
+// auto-aimed). The charge/telegraph/stun cycle keeps running
+// throughout — the player has to dodge charges while collecting
+// and throwing rocks.
 // ============================================================
 
-const LEVEL3_STAGE = {
-  FISH: "fish",
-  BIRD: "bird",
-  END: "end",
+const BOSS3_STATE = {
+  DORMANT: "dormant", // asleep until the player crosses the trigger line
+  AIMING: "aiming", // paused, locking onto the player's position
+  CHARGING: "charging", // moving in a straight line at chargeSpeed
+  STUNNED: "stunned", // recovering after slamming into a wall
 };
 
-let level3Stage = LEVEL3_STAGE.FISH;
-let level3PortalPos = null;
-let level3PortalOpen = false;
-
-// ---- fish stage: charge attack ----
-const DRAGON_CHARGE = {
-  telegraphFrames: 45, // dodge window before the charge fires
-  chargeSpeed: 9,
-  chargeMaxFrames: 90,
-  recoverFrames: 60,
+const LEVEL3_BOSS_CONFIG = {
+  maxHealth: 1000,
+  wallDamage: 100,
+  chargeSpeed: 6, // was 10 — slower charge, easier to sidestep
+  telegraphFrames: 90, // was 60 — ~1.5s warning instead of ~1s
+  stunFrames: 70, // was 45 — longer breather after a miss
+  tileSpan: 2.5, // was 3 — slightly smaller hitbox
+  triggerFraction: 0.35, // boss wakes once player crosses 35% into the arena
 };
-const DRAGON_WALL_HITS_TO_BIRD = 5;
-let dragonChargeState = "idle"; // idle -> telegraph -> charging -> recovering
-let dragonChargeTimer = 0;
-let dragonChargeDir = { x: 0, y: 0 };
-let dragonWallHits = 0;
-
-// ---- bird stage: stones ----
-let level3Stones = [];
-let level3Projectiles = [];
-const STONES_REQUIRED = 4;
-let level3StonesHit = 0;
-
-// ---- end stage: dialogue + portal ----
-const END_APPROACH_DIST = 5 * TILE_SIZE;
-let level3EndChoiceShown = false;
-let level3EndChoiceMade = null; // null | "runes" | "attack"
-let level3EndAttackActive = false;
-let level3EndStones = [];
-let level3WinTimer = 0;
-
-// ---- transitions ----
-let level3Transition = { active: false, timer: 0, duration: 45, nextStage: null };
 
 const PLAYER_HIT_INVINCIBLE_FRAMES = 90;
+
+// ------------------------------------------------------------
+// PHASE 2 — rock-throwing config
+// ------------------------------------------------------------
+const LEVEL3_PHASE = {
+  SWIM: "swim", // phase 1 — fish, boss unarmed by the player
+  FLY: "fly", // phase 2 — bird, rock-throwing unlocked
+};
+
+const ROCK_CONFIG = {
+  damage: 100,
+  throwSpeed: 10,
+  hitRadius: 24, // how close a thrown rock must get to the boss to count as a hit
+  respawnFrames: 180, // ~3s after a pedestal's rock is thrown, a new one appears
+};
+
+let level3Boss = null; // built in initLevel3BossFight()
+let level3Barrier = null; // { x, y, w, h } collision rect at the tunnel mouth
+let level3BarrierActive = false;
+
+let level3Phase = LEVEL3_PHASE.SWIM;
+let rockPedestals = []; // static pedestal positions, set once
+let thrownRocks = []; // active in-flight projectiles
 
 // ------------------------------------------------------------
 // initLevel3BossFight() — called once from loadLevel(LEVEL_THREE)
 // ------------------------------------------------------------
 function initLevel3BossFight() {
-  level3Stage = LEVEL3_STAGE.FISH;
-  level3StonesHit = 0;
-  level3Stones = [];
-  level3Projectiles = [];
-  level3EndChoiceShown = false;
-  level3EndChoiceMade = null;
-  level3EndAttackActive = false;
-  level3EndStones = [];
-  level3PortalOpen = false;
-  level3WinTimer = 0;
-  level3Transition = { active: false, timer: 0, duration: 45, nextStage: null };
+  const arena = findArea(levelAreas, "fish");
+  const arenaX = arena ? arena.bounds.x + arena.bounds.w / 2 : WORLD_W / 2;
+  const arenaY = arena ? arena.bounds.y + arena.bounds.h / 2 : WORLD_H / 2;
+  const triggerX = arena
+    ? arena.bounds.x + arena.bounds.w * LEVEL3_BOSS_CONFIG.triggerFraction
+    : arenaX;
 
-  dragonChargeState = "idle";
-  dragonChargeTimer = DRAGON_CHARGE.recoverFrames;
-  dragonWallHits = 0;
+  level3Boss = {
+    x: arenaX,
+    y: arenaY,
+    vx: 0,
+    vy: 0,
+    w: LEVEL3_BOSS_CONFIG.tileSpan * TILE_SIZE,
+    h: LEVEL3_BOSS_CONFIG.tileSpan * TILE_SIZE,
+    hp: LEVEL3_BOSS_CONFIG.maxHealth,
+    maxHp: LEVEL3_BOSS_CONFIG.maxHealth,
+    state: BOSS3_STATE.DORMANT,
+    timer: LEVEL3_BOSS_CONFIG.telegraphFrames,
+    facing: "left",
+    targetX: arenaX,
+    targetY: arenaY,
+    triggerX,
+  };
 
-  if (dragon) {
-    dragon.state = DRAGON_STATE.FIGHTING;
-    dragon.maxHealth = 1000;
-    dragon.health = dragon.maxHealth; // 1000
-  } else {
-    console.warn('initLevel3BossFight: dragon is null — does 3fisharea.json have a "dragon spawn" layer?');
-  }
+  // Gate at the tunnel mouth — solid once the boss wakes, so the player
+  // can't retreat out of the fight and the boss can't wander into the tunnel.
+  const barrierThickness = TILE_SIZE * 0.5;
+  level3Barrier = {
+    x: triggerX - barrierThickness / 2,
+    y: arena ? arena.bounds.y : 0,
+    w: barrierThickness,
+    h: arena ? arena.bounds.h : WORLD_H,
+  };
+  level3BarrierActive = false;
 
-  player.health = player.maxHealth; // 5 hits before a stage restart
+  // Phase 2 setup — pedestal positions relative to the arena bounds.
+  // Tune these to taste against your actual tile map.
+  level3Phase = LEVEL3_PHASE.SWIM;
+  thrownRocks = [];
+  rockPedestals = arena
+    ? [
+        {
+          x: arena.bounds.x + arena.bounds.w * 0.25,
+          y: arena.bounds.y + arena.bounds.h * 0.2,
+          hasRock: true,
+          respawnTimer: 0,
+        },
+        {
+          x: arena.bounds.x + arena.bounds.w * 0.55,
+          y: arena.bounds.y + arena.bounds.h * 0.35,
+          hasRock: true,
+          respawnTimer: 0,
+        },
+        {
+          x: arena.bounds.x + arena.bounds.w * 0.85,
+          y: arena.bounds.y + arena.bounds.h * 0.2,
+          hasRock: true,
+          respawnTimer: 0,
+        },
+        {
+          x: arena.bounds.x + arena.bounds.w * 0.4,
+          y: arena.bounds.y + arena.bounds.h * 0.75,
+          hasRock: true,
+          respawnTimer: 0,
+        },
+      ]
+    : [];
+
+  player.carryingRock = false;
+  player.health = player.maxHealth;
   player.invincible = false;
   player.invincibleTimer = 0;
-
-  positionForStage(LEVEL3_STAGE.FISH);
 }
 
 // ------------------------------------------------------------
-// positionForStage() — centers player/dragon in the given arena.
-// End stage is special: dragon left, portal right, player center.
+// Barrier helpers — guard against double-inserting into solidTiles
 // ------------------------------------------------------------
-function positionForStage(stage) {
-  const area = findArea(levelAreas, stage);
-  if (!area) return;
+function activateLevel3Barrier() {
+  if (level3BarrierActive || !level3Barrier) return;
+  solidTiles.push(level3Barrier);
+  level3BarrierActive = true;
+}
 
-  const cx = area.bounds.x + area.bounds.w / 2;
-  const cy = area.bounds.y + area.bounds.h / 2;
+function deactivateLevel3Barrier() {
+  if (!level3BarrierActive || !level3Barrier) return;
+  const idx = solidTiles.indexOf(level3Barrier);
+  if (idx !== -1) solidTiles.splice(idx, 1);
+  level3BarrierActive = false;
+}
 
-  if (stage === LEVEL3_STAGE.END) {
-    // player should be centered for the end stage
-    player.x = cx;
-    player.y = cy;
-    player.form = FORM_HUMAN;
+// ------------------------------------------------------------
+// Arena bounds helper — the fish area's world-space rect.
+// ------------------------------------------------------------
+function getLevel3ArenaBounds() {
+  const arena = findArea(levelAreas, "fish");
+  return {
+    left: arena ? arena.bounds.x : 0,
+    right: arena ? arena.bounds.x + arena.bounds.w : WORLD_W,
+    top: arena ? arena.bounds.y : 0,
+    bottom: arena ? arena.bounds.y + arena.bounds.h : WORLD_H,
+  };
+}
 
-    // only set dragon if it exists
-    if (dragon) {
-      dragon.x = cx - 4 * TILE_SIZE;
-      dragon.y = cy;
-    }
+// True if the boss's hitbox is touching the arena edge or any solid tile.
+function level3BossHitsWall() {
+  const halfW = level3Boss.w / 2;
+  const halfH = level3Boss.h / 2;
+  const b = getLevel3ArenaBounds();
 
-    level3PortalPos = { x: cx + 5 * TILE_SIZE, y: cy };
-
-  } else if (stage === LEVEL3_STAGE.FISH) {
-    // fish arena start
-    player.x = TILE_SIZE * 10;
-    player.y = cy;
-    player.form = FORM_FISH;
-
-    if (dragon) {
-      dragon.x = TILE_SIZE * 45;
-      dragon.y = cy - 2 * TILE_SIZE;
-    }
-
-  } else if (stage === LEVEL3_STAGE.BIRD) {
-    // position for bird stage (example — adjust as desired)
-    player.x = TILE_SIZE * 8;
-    player.y = cy;
-    player.form = FORM_BIRD;
-
-    if (dragon) {
-      dragon.x = cx + 4 * TILE_SIZE;
-      dragon.y = cy - TILE_SIZE;
-    }
+  if (
+    level3Boss.x - halfW <= b.left ||
+    level3Boss.x + halfW >= b.right ||
+    level3Boss.y - halfH <= b.top ||
+    level3Boss.y + halfH >= b.bottom
+  ) {
+    return true;
   }
-
-  // stop motion and update camera
-  player.vx = 0;
-  player.vy = 0;
-  camX = constrain(player.x - width / 2, 0, WORLD_W - width);
-  camY = constrain(player.y - height / 2, 0, WORLD_H - height);
-}
-// ------------------------------------------------------------
-// MAIN UPDATE DISPATCH — called every frame from drawLevelScreen()
-// ------------------------------------------------------------
-function updateLevel3BossFight() {
-  if (!dragon) return;
-
-  if (level3Transition.active) {
-    updateLevel3Transition();
-    return;
-  }
-
-  if (level3Stage === LEVEL3_STAGE.FISH) updateFishStage();
-  else if (level3Stage === LEVEL3_STAGE.BIRD) updateBirdStage();
-  else if (level3Stage === LEVEL3_STAGE.END) updateEndStage();
-}
-
-// ------------------------------------------------------------
-// TRANSITIONS
-// ------------------------------------------------------------
-function startLevel3Transition(nextStage) {
-  level3Transition.active = true;
-  level3Transition.timer = 0;
-  level3Transition.nextStage = nextStage;
-  player.vx = 0;
-  player.vy = 0;
-}
-
-function updateLevel3Transition() {
-  level3Transition.timer++;
-  if (level3Transition.timer >= level3Transition.duration) {
-    level3Transition.active = false;
-    level3Stage = level3Transition.nextStage;
-
-    if (level3Stage === LEVEL3_STAGE.BIRD) setupBirdStoneTiles();
-    if (level3Stage === LEVEL3_STAGE.END) {
-      level3EndChoiceShown = false;
-      level3EndChoiceMade = null;
-    }
-
-    positionForStage(level3Stage);
-  }
-}
-
-// ------------------------------------------------------------
-// FISH STAGE — dodge the charge, lead the dragon into spikes
-// ------------------------------------------------------------
-function updateFishStage() {
-  handleDragonCharge();
-  checkDragonHazardCollision();
-  checkPlayerDragonContact();
-}
-
-function handleDragonCharge() {
-  dragonChargeTimer--;
-
-  if (dragonChargeState === "idle" || dragonChargeState === "recovering") {
-    if (dragonChargeTimer <= 0) {
-      dragonChargeState = "telegraph";
-      dragonChargeTimer = DRAGON_CHARGE.telegraphFrames;
-      const dx = player.x - dragon.x;
-      const dy = player.y - dragon.y;
-      const d = Math.sqrt(dx * dx + dy * dy) || 1;
-      dragonChargeDir = { x: dx / d, y: dy / d };
-      dragon.facing = dx < 0 ? "left" : "right";
-    }
-    return;
-  }
-
-  if (dragonChargeState === "telegraph") {
-    if (dragonChargeTimer <= 0) {
-      dragonChargeState = "charging";
-      dragonChargeTimer = DRAGON_CHARGE.chargeMaxFrames;
-    }
-    return;
-  }
-
-  if (dragonChargeState === "charging") {
-    dragon.x += dragonChargeDir.x * DRAGON_CHARGE.chargeSpeed;
-    dragon.y += dragonChargeDir.y * DRAGON_CHARGE.chargeSpeed;
-
-    const hitWall = resolveDragonSolidCollisionsReturnHit();
-    if (hitWall || dragonChargeTimer <= 0) {
-      if (hitWall) {
-        dragonWallHits++;
-        if (dragonWallHits >= DRAGON_WALL_HITS_TO_BIRD || dragon.health <= 500) {
-          startLevel3Transition(LEVEL3_STAGE.BIRD);
-        }
-      }
-      dragonChargeState = "recovering";
-      dragonChargeTimer = DRAGON_CHARGE.recoverFrames;
-    }
-  }
-}
-
-// Same as resolveDragonSolidCollisions() but reports whether it hit
-// something, so a wall-slam ends the charge early like a spike would.
-function resolveDragonSolidCollisionsReturnHit() {
-  if (!dragon) return false;
-  const halfW = dragon.w / 2;
-  const halfH = dragon.h / 2;
-  let hit = false;
 
   for (const t of solidTiles) {
-    const requiredKeys = GATE_LAYERS[t.layerName];
-    if (requiredKeys !== undefined && keyCollected >= requiredKeys) continue;
-
-    const before = { x: dragon.x, y: dragon.y };
-    resolveBoxRect(dragon, halfW, halfH, t);
-    if (dragon.x !== before.x || dragon.y !== before.y) hit = true;
+    const overlapsX =
+      level3Boss.x + halfW > t.x && level3Boss.x - halfW < t.x + t.w;
+    const overlapsY =
+      level3Boss.y + halfH > t.y && level3Boss.y - halfH < t.y + t.h;
+    if (overlapsX && overlapsY) return true;
   }
-  return hit;
+
+  return false;
 }
 
-function checkDragonHazardCollision() {
-  if (dragonChargeState !== "charging") return;
+function checkLevel3BossPlayerCollision() {
+  if (!level3Boss || player.invincible) return;
 
-  const halfW = dragon.w / 2;
-  const halfH = dragon.h / 2;
-
-  for (const t of hazardTiles) {
-    const overlapsX = dragon.x + halfW > t.x && dragon.x - halfW < t.x + t.w;
-    const overlapsY = dragon.y + halfH > t.y && dragon.y - halfH < t.y + t.h;
-    if (overlapsX && overlapsY) {
-      damageDragon(20);
-      dragonChargeState = "recovering";
-      dragonChargeTimer = DRAGON_CHARGE.recoverFrames;
-
-      if (dragon.health <= 500) startLevel3Transition(LEVEL3_STAGE.BIRD);
-      return; // one spike hit is enough to end the stage if low enough
-    }
-  }
-}
-
-function checkPlayerDragonContact() {
-  if (player.invincible) return;
-  const halfW = dragon.w / 2;
-  const halfH = dragon.h / 2;
-  const closestX = constrain(player.x, dragon.x - halfW, dragon.x + halfW);
-  const closestY = constrain(player.y, dragon.y - halfH, dragon.y + halfH);
+  const halfW = level3Boss.w / 2;
+  const halfH = level3Boss.h / 2;
+  const closestX = constrain(
+    player.x,
+    level3Boss.x - halfW,
+    level3Boss.x + halfW,
+  );
+  const closestY = constrain(
+    player.y,
+    level3Boss.y - halfH,
+    level3Boss.y + halfH,
+  );
 
   if (dist(player.x, player.y, closestX, closestY) < player.r) {
     playerTakeDragonHit();
   }
 }
 
-function damageDragon(amount) {
-  if (!dragon) return;
-  dragon.health = Math.max(0, dragon.health - amount);
+// ------------------------------------------------------------
+// damageLevel3Boss() — single entry point for all boss damage, so
+// the phase-2 threshold check only lives in one place. Used by both
+// the wall-hit charge damage and thrown-rock hits.
+// ------------------------------------------------------------
+function damageLevel3Boss(amount) {
+  level3Boss.hp = Math.max(0, level3Boss.hp - amount);
+
+  if (level3Boss.hp <= 0) {
+    stopAllGameSounds();
+    gameState = STATE_WIN;
+    return;
+  }
+
+  if (level3Phase === LEVEL3_PHASE.SWIM && level3Boss.hp <= 500) {
+    enterLevel3FlyPhase();
+  }
+}
+
+function enterLevel3FlyPhase() {
+  level3Phase = LEVEL3_PHASE.FLY;
+  player.form = FORM_BIRD;
+  player.vy = 0; // don't carry fish sink-velocity into bird gravity
 }
 
 // ------------------------------------------------------------
-// PLAYER HIT / STAGE RESTART
+// MAIN UPDATE — called every frame from drawLevelScreen()
+// ------------------------------------------------------------
+function updateLevel3BossFight() {
+  if (!level3Boss || currentScreen !== LEVEL_THREE || gameState !== STATE_PLAY)
+    return;
+
+  if (level3Boss.state === BOSS3_STATE.DORMANT) {
+    if (player.x >= level3Boss.triggerX) {
+      level3Boss.state = BOSS3_STATE.AIMING;
+      level3Boss.timer = LEVEL3_BOSS_CONFIG.telegraphFrames;
+      activateLevel3Barrier();
+    }
+    return; // no collision checks while dormant — boss is harmless
+  }
+
+  if (level3Boss.state === BOSS3_STATE.AIMING) {
+    level3Boss.targetX = player.x;
+    level3Boss.targetY = player.y;
+
+    level3Boss.timer--;
+    if (level3Boss.timer <= 0) {
+      const dx = level3Boss.targetX - level3Boss.x;
+      const dy = level3Boss.targetY - level3Boss.y;
+      const d = Math.sqrt(dx * dx + dy * dy) || 1;
+
+      level3Boss.vx = (dx / d) * LEVEL3_BOSS_CONFIG.chargeSpeed;
+      level3Boss.vy = (dy / d) * LEVEL3_BOSS_CONFIG.chargeSpeed;
+      level3Boss.facing = dx < 0 ? "left" : "right";
+      level3Boss.state = BOSS3_STATE.CHARGING;
+    }
+  } else if (level3Boss.state === BOSS3_STATE.CHARGING) {
+    const prevX = level3Boss.x;
+    const prevY = level3Boss.y;
+
+    level3Boss.x += level3Boss.vx;
+    level3Boss.y += level3Boss.vy;
+
+    if (level3BossHitsWall()) {
+      // Roll back to the last position we know was clear — this works for
+      // both arena-boundary hits and interior solidTiles hits, and it
+      // guarantees the boss isn't left flush/embedded against whatever
+      // it hit, so the next charge attempt has to actually travel before
+      // it can register another collision.
+      level3Boss.x = prevX;
+      level3Boss.y = prevY;
+      level3Boss.vx = 0;
+      level3Boss.vy = 0;
+      level3Boss.state = BOSS3_STATE.STUNNED;
+      level3Boss.timer = LEVEL3_BOSS_CONFIG.stunFrames;
+      if (diesound) diesound.play();
+
+      damageLevel3Boss(LEVEL3_BOSS_CONFIG.wallDamage);
+      if (level3Boss.hp <= 0) return; // damageLevel3Boss already set STATE_WIN
+    }
+  } else if (level3Boss.state === BOSS3_STATE.STUNNED) {
+    level3Boss.timer--;
+    if (level3Boss.timer <= 0) {
+      level3Boss.state = BOSS3_STATE.AIMING;
+      level3Boss.timer = LEVEL3_BOSS_CONFIG.telegraphFrames;
+    }
+  }
+
+  checkLevel3BossPlayerCollision();
+  updateLevel3Rocks();
+}
+
+// ------------------------------------------------------------
+// PHASE 2 — rock pickup / throw / in-flight update
+// ------------------------------------------------------------
+function updateLevel3Rocks() {
+  if (level3Phase !== LEVEL3_PHASE.FLY) return;
+
+  // Pedestal pickup — walk into a pedestal that currently has a rock
+  for (const p of rockPedestals) {
+    if (p.hasRock && !player.carryingRock) {
+      if (dist(player.x, player.y, p.x, p.y) < 28) {
+        p.hasRock = false;
+        p.respawnTimer = ROCK_CONFIG.respawnFrames;
+        player.carryingRock = true;
+      }
+    } else if (!p.hasRock) {
+      p.respawnTimer--;
+      if (p.respawnTimer <= 0) p.hasRock = true;
+    }
+  }
+
+  // In-flight rocks — auto-aimed straight at the boss's position at throw time
+  for (let i = thrownRocks.length - 1; i >= 0; i--) {
+    const r = thrownRocks[i];
+    r.x += r.vx;
+    r.y += r.vy;
+    r.life--;
+
+    if (dist(r.x, r.y, level3Boss.x, level3Boss.y) < ROCK_CONFIG.hitRadius) {
+      damageLevel3Boss(ROCK_CONFIG.damage);
+      thrownRocks.splice(i, 1);
+      continue;
+    }
+    if (r.life <= 0) thrownRocks.splice(i, 1);
+  }
+}
+
+// Call this from keyPressed() on the throw-button binding
+function throwLevel3Rock() {
+  if (level3Phase !== LEVEL3_PHASE.FLY || !player.carryingRock) return;
+  if (!level3Boss) return;
+
+  const dx = level3Boss.x - player.x;
+  const dy = level3Boss.y - player.y;
+  const d = Math.sqrt(dx * dx + dy * dy) || 1;
+
+  thrownRocks.push({
+    x: player.x,
+    y: player.y,
+    vx: (dx / d) * ROCK_CONFIG.throwSpeed,
+    vy: (dy / d) * ROCK_CONFIG.throwSpeed,
+    life: 90,
+  });
+  player.carryingRock = false;
+}
+
+// ------------------------------------------------------------
+// PLAYER HIT / RESTART
 // ------------------------------------------------------------
 function playerTakeDragonHit() {
   if (player.invincible) return;
@@ -301,321 +372,189 @@ function playerTakeDragonHit() {
 }
 
 function restartLevel3Stage() {
+  // Reset the player's position FIRST — the boss-state/barrier decision
+  // below reads player.x, so it must see the post-respawn position, not
+  // wherever the player died.
+  player.x = playerStart.x;
+  player.y = playerStart.y;
+  player.vx = 0;
+  player.vy = 0;
+  camX = constrain(player.x - width / 2, 0, WORLD_W - width);
+  camY = constrain(player.y - height / 2, 0, WORLD_H - height);
+
   player.health = player.maxHealth;
   player.invincible = false;
   player.invincibleTimer = 0;
 
-  if (level3Stage === LEVEL3_STAGE.FISH) {
-    dragon.health = 1000;
-    dragonWallHits = 0;
-  } else if (level3Stage === LEVEL3_STAGE.BIRD) {
-    dragon.health = 500;
-    level3StonesHit = 0;
-    setupBirdStoneTiles();
-    level3Projectiles = [];
-  } else if (level3Stage === LEVEL3_STAGE.END) {
-    // the "attack" path always fails by design — send the player back
-    // to the choice instead of a hard reset
-    dragon.health = 80;
-    level3EndAttackActive = false;
-    level3EndChoiceMade = null;
-    level3EndChoiceShown = true;
-    level3EndStones = [];
-    level3Projectiles = [];
-  }
+  if (level3Boss) {
+    level3Boss.vx = 0;
+    level3Boss.vy = 0;
+    level3Boss.state =
+      player.x >= level3Boss.triggerX
+        ? BOSS3_STATE.AIMING
+        : BOSS3_STATE.DORMANT;
+    level3Boss.timer = LEVEL3_BOSS_CONFIG.telegraphFrames;
 
-  dragonChargeState = "idle";
-  dragonChargeTimer = DRAGON_CHARGE.recoverFrames;
-  positionForStage(level3Stage);
-}
-
-// ------------------------------------------------------------
-// BIRD STAGE — touch stones, they fly at the dragon
-// ------------------------------------------------------------
-function setupBirdStoneTiles() {
-  level3Stones = [];
-  const bird = findArea(levelAreas, "bird");
-  if (!bird || !bird.json || !bird.json.layers) return;
-
-  const stoneLayer = bird.json.layers.find((l) => l.name === "stone");
-  if (!stoneLayer) {
-    console.warn('setupBirdStoneTiles: no "stone" layer found in birdArea3');
-    return;
-  }
-
-  for (const t of stoneLayer.tiles) {
-    level3Stones.push({
-      x: t.x * TILE_SIZE + bird.bounds.x,
-      y: t.y * TILE_SIZE + bird.bounds.y,
-      w: TILE_SIZE,
-      h: TILE_SIZE,
-      collected: false,
-    });
-  }
-}
-
-function updateBirdStage() {
-  for (const s of level3Stones) {
-    if (s.collected) continue;
-    const cx = s.x + s.w / 2;
-    const cy = s.y + s.h / 2;
-    if (dist(player.x, player.y, cx, cy) < player.r + TILE_SIZE * 0.35) {
-      s.collected = true;
-      level3Projectiles.push({ x: cx, y: cy, speed: 10 });
-      if (runesound) runesound.play();
+    if (level3Boss.state === BOSS3_STATE.DORMANT) {
+      deactivateLevel3Barrier();
+    } else {
+      activateLevel3Barrier();
     }
   }
 
-  for (let i = level3Projectiles.length - 1; i >= 0; i--) {
-    const p = level3Projectiles[i];
-    const dx = dragon.x - p.x;
-    const dy = dragon.y - p.y;
-    const d = Math.sqrt(dx * dx + dy * dy) || 1;
-
-    if (d < TILE_SIZE * 0.6) {
-      level3Projectiles.splice(i, 1);
-      damageDragon(100);
-      level3StonesHit++;
-      if (level3StonesHit >= STONES_REQUIRED) startLevel3Transition(LEVEL3_STAGE.END);
-      continue;
-    }
-
-    p.x += (dx / d) * p.speed;
-    p.y += (dy / d) * p.speed;
-  }
-}
-
-// ------------------------------------------------------------
-// END STAGE — human, dragon left, portal right, then the choice
-// ------------------------------------------------------------
-function updateEndStage() {
-  if (level3EndAttackActive) {
-    updateEndAttackSequence();
-    return;
-  }
-
-  if (level3WinTimer > 0) {
-    level3WinTimer--;
-    if (level3WinTimer <= 0) {
-      stopAllGameSounds();
-      gameState = STATE_WIN;
-    }
-    return;
-  }
-
-  if (!level3EndChoiceShown) {
-    const d = dist(player.x, player.y, dragon.x, dragon.y);
-    if (d < END_APPROACH_DIST) {
-      level3EndChoiceShown = true;
-      player.vx = 0;
-      player.vy = 0;
-    }
-  }
-}
-
-function chooseGiveRunes() {
-  level3EndChoiceMade = "runes";
-  level3PortalOpen = true;
-  if (runesound) runesound.play();
-  level3WinTimer = 60; // let the portal-open beat land before the win screen
-}
-
-function chooseAttackDragon() {
-  level3EndChoiceMade = "attack";
-  level3EndAttackActive = true;
-
-  level3EndStones = [
-    { x: player.x - 2 * TILE_SIZE, y: player.y + TILE_SIZE, w: TILE_SIZE, h: TILE_SIZE, collected: false },
-    { x: player.x + 2 * TILE_SIZE, y: player.y + TILE_SIZE, w: TILE_SIZE, h: TILE_SIZE, collected: false },
-    { x: player.x, y: player.y - 2 * TILE_SIZE, w: TILE_SIZE, h: TILE_SIZE, collected: false },
-  ];
-
-  dragonChargeState = "idle";
-  dragonChargeTimer = 40; // dragon reacts fast once attacked
-}
-
-function updateEndAttackSequence() {
-  for (const s of level3EndStones) {
-    if (s.collected) continue;
-    const cx = s.x + s.w / 2;
-    const cy = s.y + s.h / 2;
-    if (dist(player.x, player.y, cx, cy) < player.r + TILE_SIZE * 0.35) {
-      s.collected = true;
-      level3Projectiles.push({ x: cx, y: cy, speed: 10 });
-    }
-  }
-
-  for (let i = level3Projectiles.length - 1; i >= 0; i--) {
-    const p = level3Projectiles[i];
-    const dx = dragon.x - p.x;
-    const dy = dragon.y - p.y;
-    const d = Math.sqrt(dx * dx + dy * dy) || 1;
-    if (d < TILE_SIZE * 0.6) {
-      level3Projectiles.splice(i, 1);
-      damageDragon(5); // deliberately too little — this path can't win
-      continue;
-    }
-    p.x += (dx / d) * p.speed;
-    p.y += (dy / d) * p.speed;
-  }
-
-  handleDragonCharge();
-  checkPlayerDragonContact();
-}
-
-// ------------------------------------------------------------
-// mousePressed dispatch
-// ------------------------------------------------------------
-function handleLevel3MousePressed() {
-  if (level3Stage !== LEVEL3_STAGE.END) return;
-  if (!level3EndChoiceShown || level3EndChoiceMade) return;
-
-  if (isMouseOver(width / 2 - 110, height - 70, 180, 50)) {
-    chooseGiveRunes();
-  } else if (isMouseOver(width / 2 + 110, height - 70, 180, 50)) {
-    chooseAttackDragon();
-  }
+  // Note: level3Phase is intentionally NOT reset here — once the boss
+  // drops to phase 2, the fight stays aerial even after a player death.
 }
 
 // ------------------------------------------------------------
 // DRAWING — world-space (called pre-pop, inside camera transform)
 // ------------------------------------------------------------
 function drawLevel3BossFightWorld() {
-  if (level3Stage === LEVEL3_STAGE.FISH) drawDragonChargeTelegraph();
-  else if (level3Stage === LEVEL3_STAGE.BIRD) drawBirdStoneStage();
-  else if (level3Stage === LEVEL3_STAGE.END) drawEndStagePortalAndStones();
-}
+  if (!level3Boss) return;
 
-function drawDragonChargeTelegraph() {
-  if (dragonChargeState !== "telegraph") return;
-  push();
-  stroke(255, 60, 60, 150);
-  strokeWeight(3);
-  line(dragon.x, dragon.y, player.x, player.y);
-  noFill();
-  ellipse(dragon.x, dragon.y, dragon.w * 1.4, dragon.h * 1.4);
-  pop();
-}
-
-function drawBirdStoneStage() {
-  push();
-  rectMode(CENTER);
-  noStroke();
-  fill(150, 150, 150);
-  for (const s of level3Stones) {
-    if (s.collected) continue;
-    rect(s.x + s.w / 2, s.y + s.h / 2, TILE_SIZE * 0.6, TILE_SIZE * 0.6);
+  // Tunnel gate — draw first so it sits behind the boss/telegraph
+  if (level3BarrierActive && level3Barrier) {
+    push();
+    noStroke();
+    fill(120, 40, 40, 200);
+    rectMode(CORNER);
+    rect(level3Barrier.x, level3Barrier.y, level3Barrier.w, level3Barrier.h);
+    pop();
   }
-  fill(180, 180, 180);
-  for (const p of level3Projectiles) ellipse(p.x, p.y, TILE_SIZE * 0.4, TILE_SIZE * 0.4);
-  pop();
-}
 
-function drawEndStagePortalAndStones() {
-  if (level3PortalPos) {
-    const img = level3PortalOpen ? portalOpenImg : portalClosedImg;
-    if (img) {
+  push();
+  imageMode(CENTER);
+
+  // Telegraph — a flashing line toward the locked-in charge target,
+  // so the player has a fair read on where to dodge.
+  if (level3Boss.state === BOSS3_STATE.AIMING && frameCount % 20 < 10) {
+    stroke(255, 60, 60, 160);
+    strokeWeight(3);
+    line(level3Boss.x, level3Boss.y, level3Boss.targetX, level3Boss.targetY);
+    noFill();
+    ellipse(level3Boss.x, level3Boss.y, level3Boss.w * 1.4, level3Boss.h * 1.4);
+  }
+
+  dragonAnimTimer++;
+  if (dragonAnimTimer >= DRAGON_SPRITE.animSpeed) {
+    dragonAnimTimer = 0;
+    dragonAnimFrame = (dragonAnimFrame + 1) % DRAGON_SPRITE.numFrames;
+  }
+
+  const row =
+    level3Boss.facing === "left"
+      ? DRAGON_SPRITE.rows.flyingLeft
+      : DRAGON_SPRITE.rows.flyingRight;
+
+  const sx = dragonAnimFrame * DRAGON_SPRITE.frameWidth;
+  const sy = row * DRAGON_SPRITE.frameHeight;
+  const dw = DRAGON_SPRITE.frameWidth * DRAGON_SPRITE.scale;
+  const dh = DRAGON_SPRITE.frameHeight * DRAGON_SPRITE.scale;
+
+  if (dragonSheet) {
+    image(
+      dragonSheet,
+      level3Boss.x,
+      level3Boss.y,
+      dw,
+      dh,
+      sx,
+      sy,
+      DRAGON_SPRITE.frameWidth,
+      DRAGON_SPRITE.frameHeight,
+    );
+  }
+
+  pop();
+
+  // Rock pedestals + carried/thrown rocks
+  if (level3Phase === LEVEL3_PHASE.FLY) {
+    push();
+    rectMode(CENTER);
+    for (const p of rockPedestals) {
+      fill(120, 90, 60);
+      noStroke();
+      rect(p.x, p.y + 10, 36, 16, 4); // pedestal base
+      if (p.hasRock) {
+        fill(150, 150, 150);
+        ellipse(p.x, p.y - 6, 22, 20);
+      }
+    }
+    for (const r of thrownRocks) {
+      fill(150, 150, 150);
+      noStroke();
+      ellipse(r.x, r.y, 14, 14);
+    }
+    pop();
+
+    // Carried-rock indicator above the player
+    if (player.carryingRock) {
       push();
-      imageMode(CENTER);
-      image(img, level3PortalPos.x, level3PortalPos.y, TILE_SIZE * 2, TILE_SIZE * 2);
+      fill(150, 150, 150);
+      noStroke();
+      ellipse(player.x, player.y - 30, 14, 14);
       pop();
     }
   }
-
-  push();
-  rectMode(CENTER);
-  noStroke();
-  fill(150, 150, 150);
-  for (const s of level3EndStones) {
-    if (s.collected) continue;
-    rect(s.x + s.w / 2, s.y + s.h / 2, TILE_SIZE * 0.6, TILE_SIZE * 0.6);
-  }
-  fill(180, 180, 180);
-  for (const p of level3Projectiles) ellipse(p.x, p.y, TILE_SIZE * 0.4, TILE_SIZE * 0.4);
-  pop();
 }
 
 // ------------------------------------------------------------
 // DRAWING — screen-space HUD (called post-pop, plain screen coords)
 // ------------------------------------------------------------
 function drawLevel3HUD() {
-  drawPlayerHealthHUD();
-  drawDragonHealthHUD();
-  drawEndChoiceUI();
-  drawLevel3TransitionFlash();
-}
+  if (!level3Boss) return;
 
-function drawPlayerHealthHUD() {
-  const x = 14, y = 14, boxW = 140, boxH = 34;
-  push();
-  noStroke();
-  fill(0, 0, 0, 140);
-  rect(x, y, boxW, boxH, 8);
-
-  fill(255);
-  textSize(12);
-  textFont("monospace");
-  textAlign(LEFT, CENTER);
-  text("HEALTH", x + 10, y + boxH / 2);
-
-  const heartSize = 14;
-  const startX = x + 68;
-  for (let i = 0; i < player.maxHealth; i++) {
-    fill(i < player.health ? color(220, 50, 50) : color(70, 70, 70));
-    ellipse(startX + i * (heartSize + 2), y + boxH / 2, heartSize, heartSize);
-  }
-  pop();
-}
-
-function drawDragonHealthHUD() {
-  if (!dragon) return;
-  const barW = 240, barH = 16;
-  const x = width / 2 - barW / 2, y = 16;
+  // Boss health bar
+  const barW = 300;
+  const barH = 18;
+  const bx = width / 2 - barW / 2;
+  const by = 16;
 
   push();
   noStroke();
-  fill(0, 0, 0, 140);
-  rect(x - 6, y - 6, barW + 12, barH + 24, 8);
-
-  fill(255);
-  textSize(11);
-  textFont("monospace");
-  textAlign(CENTER, TOP);
-  text("DRAGON", x + barW / 2, y);
-
+  fill(0, 0, 0, 150);
+  rect(bx - 4, by - 4, barW + 8, barH + 8, 6);
   fill(60, 60, 60);
-  rect(x, y + 14, barW, barH, 4);
-  fill(200, 60, 60);
-  rect(x, y + 14, map(dragon.health, 0, dragon.maxHealth, 0, barW), barH, 4);
-  pop();
-}
+  rect(bx, by, barW, barH, 4);
 
-function drawEndChoiceUI() {
-  if (level3Stage !== LEVEL3_STAGE.END) return;
-  if (!level3EndChoiceShown || level3EndChoiceMade || level3EndAttackActive) return;
+  const hpRatio = constrain(level3Boss.hp / level3Boss.maxHp, 0, 1);
+  fill(220, 50, 50);
+  rect(bx, by, barW * hpRatio, barH, 4);
 
-  push();
-  noStroke();
-  fill(0, 0, 0, 160);
-  rect(width / 2 - 260, height - 130, 520, 90, 10);
   fill(255);
   textAlign(CENTER, CENTER);
-  textSize(14);
   textFont("monospace");
-  text("The dragon waits.", width / 2, height - 110);
+  textSize(12);
+  text(
+    `BOSS  ${max(level3Boss.hp, 0)} / ${level3Boss.maxHp}`,
+    bx + barW / 2,
+    by + barH / 2,
+  );
   pop();
 
-  drawButton(width / 2 - 110, height - 70, 180, 50, "Give runes");
-  drawButton(width / 2 + 110, height - 70, 180, 50, "Attack dragon");
-}
+  // Player hearts
+  const heartSize = 22;
+  const heartPad = 4;
+  const startX = 16;
+  const startY = 16;
 
-function drawLevel3TransitionFlash() {
-  if (!level3Transition.active) return;
-  const progress = level3Transition.timer / level3Transition.duration;
-  const alpha = progress < 0.5 ? map(progress, 0, 0.5, 0, 255) : map(progress, 0.5, 1, 255, 0);
   push();
   noStroke();
-  fill(255, 255, 255, alpha);
-  rect(0, 0, width, height);
+  for (let i = 0; i < player.maxHealth; i++) {
+    const hx = startX + i * (heartSize + heartPad);
+    fill(i < player.health ? color(220, 50, 50) : color(70, 70, 70));
+    ellipse(hx + heartSize / 2, startY + heartSize / 2, heartSize, heartSize);
+  }
   pop();
+
+  // Carried-rock indicator (phase 2)
+  if (level3Phase === LEVEL3_PHASE.FLY && player.carryingRock) {
+    push();
+    fill(255);
+    textAlign(LEFT, TOP);
+    textFont("monospace");
+    textSize(12);
+    text("Rock ready — [SPACE] to throw", startX, startY + heartSize + 12);
+    pop();
+  }
 }
