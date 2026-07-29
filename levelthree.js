@@ -99,11 +99,43 @@ function initLevel3BossFight() {
   // Tune these to taste against your actual tile map.
   level3Phase = LEVEL3_PHASE.SWIM;
   thrownRocks = [];
+<<<<<<< HEAD
+=======
+  rockPedestals = arena
+    ? [
+        {
+          x: arena.bounds.x + arena.bounds.w * 0.25,
+          y: arena.bounds.y + arena.bounds.h * 0.2,
+          hasRock: true,
+          respawnTimer: 0,
+        },
+        {
+          x: arena.bounds.x + arena.bounds.w * 0.55,
+          y: arena.bounds.y + arena.bounds.h * 0.35,
+          hasRock: true,
+          respawnTimer: 0,
+        },
+        {
+          x: arena.bounds.x + arena.bounds.w * 0.85,
+          y: arena.bounds.y + arena.bounds.h * 0.2,
+          hasRock: true,
+          respawnTimer: 0,
+        },
+        {
+          x: arena.bounds.x + arena.bounds.w * 0.4,
+          y: arena.bounds.y + arena.bounds.h * 0.75,
+          hasRock: true,
+          respawnTimer: 0,
+        },
+      ]
+    : [];
+>>>>>>> ce10c200b2b141f534d4ded1e2c9c455f8d47d1a
 
   player.carryingRock = false;
   player.health = player.maxHealth;
   player.invincible = false;
   player.invincibleTimer = 0;
+<<<<<<< HEAD
 
   level3CamZoomTarget = 0.6; // wider baseline for the boss arena
 level3FishSpawnBounds = getFishSpawnBounds();
@@ -188,6 +220,54 @@ function level3BossHitsWall() {
     return true;
   }
 
+=======
+}
+
+// ------------------------------------------------------------
+// Barrier helpers — guard against double-inserting into solidTiles
+// ------------------------------------------------------------
+function activateLevel3Barrier() {
+  if (level3BarrierActive || !level3Barrier) return;
+  solidTiles.push(level3Barrier);
+  level3BarrierActive = true;
+}
+
+function deactivateLevel3Barrier() {
+  if (!level3BarrierActive || !level3Barrier) return;
+  const idx = solidTiles.indexOf(level3Barrier);
+  if (idx !== -1) solidTiles.splice(idx, 1);
+  level3BarrierActive = false;
+}
+
+// ------------------------------------------------------------
+// Arena bounds helper — the fish area's world-space rect.
+// ------------------------------------------------------------
+function getLevel3ArenaBounds() {
+  const arena = findArea(levelAreas, "fish");
+  return {
+    left: arena ? arena.bounds.x : 0,
+    right: arena ? arena.bounds.x + arena.bounds.w : WORLD_W,
+    top: arena ? arena.bounds.y : 0,
+    bottom: arena ? arena.bounds.y + arena.bounds.h : WORLD_H,
+  };
+}
+
+// True if the boss's hitbox is touching the arena edge or any solid tile.
+function level3BossHitsWall() {
+  const halfW = level3Boss.w / 2;
+  const halfH = level3Boss.h / 2;
+  const b = getLevel3ArenaBounds();
+
+  if (
+    level3Boss.x - halfW <= b.left ||
+    level3Boss.x + halfW >= b.right ||
+    level3Boss.y - halfH <= b.top ||
+    level3Boss.y + halfH >= b.bottom
+  ) {
+    return true;
+  }
+
+>>>>>>> ce10c200b2b141f534d4ded1e2c9c455f8d47d1a
   for (const t of solidTiles) {
     const overlapsX =
       level3Boss.x + halfW > t.x && level3Boss.x - halfW < t.x + t.w;
@@ -243,6 +323,7 @@ function enterLevel3FlyPhase() {
   level3Phase = LEVEL3_PHASE.FLY;
   player.form = FORM_BIRD;
   player.vy = 0; // don't carry fish sink-velocity into bird gravity
+<<<<<<< HEAD
   moveToLevel3BirdArena();
 }
 
@@ -352,6 +433,78 @@ function updateLevel3BossFight() {
 }
 
 // ------------------------------------------------------------
+=======
+}
+
+// ------------------------------------------------------------
+// MAIN UPDATE — called every frame from drawLevelScreen()
+// ------------------------------------------------------------
+function updateLevel3BossFight() {
+  if (!level3Boss || currentScreen !== LEVEL_THREE || gameState !== STATE_PLAY)
+    return;
+
+  if (level3Boss.state === BOSS3_STATE.DORMANT) {
+    if (player.x >= level3Boss.triggerX) {
+      level3Boss.state = BOSS3_STATE.AIMING;
+      level3Boss.timer = LEVEL3_BOSS_CONFIG.telegraphFrames;
+      activateLevel3Barrier();
+    }
+    return; // no collision checks while dormant — boss is harmless
+  }
+
+  if (level3Boss.state === BOSS3_STATE.AIMING) {
+    level3Boss.targetX = player.x;
+    level3Boss.targetY = player.y;
+
+    level3Boss.timer--;
+    if (level3Boss.timer <= 0) {
+      const dx = level3Boss.targetX - level3Boss.x;
+      const dy = level3Boss.targetY - level3Boss.y;
+      const d = Math.sqrt(dx * dx + dy * dy) || 1;
+
+      level3Boss.vx = (dx / d) * LEVEL3_BOSS_CONFIG.chargeSpeed;
+      level3Boss.vy = (dy / d) * LEVEL3_BOSS_CONFIG.chargeSpeed;
+      level3Boss.facing = dx < 0 ? "left" : "right";
+      level3Boss.state = BOSS3_STATE.CHARGING;
+    }
+  } else if (level3Boss.state === BOSS3_STATE.CHARGING) {
+    const prevX = level3Boss.x;
+    const prevY = level3Boss.y;
+
+    level3Boss.x += level3Boss.vx;
+    level3Boss.y += level3Boss.vy;
+
+    if (level3BossHitsWall()) {
+      // Roll back to the last position we know was clear — this works for
+      // both arena-boundary hits and interior solidTiles hits, and it
+      // guarantees the boss isn't left flush/embedded against whatever
+      // it hit, so the next charge attempt has to actually travel before
+      // it can register another collision.
+      level3Boss.x = prevX;
+      level3Boss.y = prevY;
+      level3Boss.vx = 0;
+      level3Boss.vy = 0;
+      level3Boss.state = BOSS3_STATE.STUNNED;
+      level3Boss.timer = LEVEL3_BOSS_CONFIG.stunFrames;
+      if (diesound) diesound.play();
+
+      damageLevel3Boss(LEVEL3_BOSS_CONFIG.wallDamage);
+      if (level3Boss.hp <= 0) return; // damageLevel3Boss already set STATE_WIN
+    }
+  } else if (level3Boss.state === BOSS3_STATE.STUNNED) {
+    level3Boss.timer--;
+    if (level3Boss.timer <= 0) {
+      level3Boss.state = BOSS3_STATE.AIMING;
+      level3Boss.timer = LEVEL3_BOSS_CONFIG.telegraphFrames;
+    }
+  }
+
+  checkLevel3BossPlayerCollision();
+  updateLevel3Rocks();
+}
+
+// ------------------------------------------------------------
+>>>>>>> ce10c200b2b141f534d4ded1e2c9c455f8d47d1a
 // PHASE 2 — rock pickup / throw / in-flight update
 // ------------------------------------------------------------
 function updateLevel3Rocks() {
@@ -553,7 +706,10 @@ function drawLevel3BossFightWorld() {
 function drawLevel3HUD() {
   if (!level3Boss) return;
 
+<<<<<<< HEAD
   if (!playerInFishSpawn()) {
+=======
+>>>>>>> ce10c200b2b141f534d4ded1e2c9c455f8d47d1a
   // Boss health bar
   const barW = 300;
   const barH = 18;
@@ -581,6 +737,7 @@ function drawLevel3HUD() {
     by + barH / 2,
   );
   pop();
+<<<<<<< HEAD
 }
 
   // Player hearts
@@ -589,6 +746,15 @@ function drawLevel3HUD() {
   const startX = 16;
   const startY = 16;
 
+=======
+
+  // Player hearts
+  const heartSize = 22;
+  const heartPad = 4;
+  const startX = 16;
+  const startY = 16;
+
+>>>>>>> ce10c200b2b141f534d4ded1e2c9c455f8d47d1a
   push();
   noStroke();
   for (let i = 0; i < player.maxHealth; i++) {
@@ -608,4 +774,8 @@ function drawLevel3HUD() {
     text("Rock ready — [SPACE] to throw", startX, startY + heartSize + 12);
     pop();
   }
+<<<<<<< HEAD
 }
+=======
+}
+>>>>>>> ce10c200b2b141f534d4ded1e2c9c455f8d47d1a
