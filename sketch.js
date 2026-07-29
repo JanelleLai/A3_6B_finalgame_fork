@@ -9,7 +9,6 @@ const LEVEL_TWO = "leveltwo.js";
 const LEVEL_THREE = "levelthree.js";
 
 // SCREEN_C, SCREEN_D... add more here as you grow
-
 let currentScreen = TITLE_SCREEN;
 
 // goToScreen() is the ONLY function allowed to change currentScreen.
@@ -62,9 +61,6 @@ function mousePressed() {
     }
   }
 }
-
-// ============================================================
-// ============================================================
 
 // ------------------------------------------------------------
 // CAMERA
@@ -178,6 +174,27 @@ let dragonPingPongDir = 1;
 let dragonSleepFrame = 0;
 let dragonSleepTimer = 0;
 
+// ------------------------------------------------------------
+// BAT SPRITE CONFIGURATION
+// ------------------------------------------------------------
+const BAT_SPRITE = {
+  frameWidth: 0,   // set in setup() from batFlySheet
+  frameHeight: 0,  // set in setup()
+  numFrames: 5,    // batsSheet.png has 5 flying frames laid out horizontally
+  animSpeed: 6,    // lower = faster wing flap
+  scale: 0.12,     // tune to taste — start here and adjust against TILE_SIZE
+  idleScale: 1.5,
+};
+
+let batFlySheet;
+let batIdleImg;
+let batAnimFrame = 0;
+let batAnimTimer = 0;
+
+// ------------------------------------------------------------
+// RUNE SPRITE CONFIGURATION
+// ------------------------------------------------------------
+
 const RUNE_SPRITE = {
   frameWidth: 620,
   frameHeight: 600,
@@ -274,7 +291,7 @@ const BAT_STATE = {
   SLEEPING: "sleeping",
   AWAKE: "awake",
 };
-const BAT_SPEED_MULTIPLIER = 0.8; // bats move at 150% of the bird's move speed
+const BAT_SPEED_MULTIPLIER = 0.7; // bats move at 150% of the bird's move speed
 let bats = []; // [{x,y,spawnX,spawnY,state,speed}] — current level's bats
 let batSpawnTiles = []; // raw "bat" layer tiles for the current level
 let batsWoken = false; // once true, stays true — bats never go back to sleep
@@ -465,7 +482,7 @@ const LEVELS = {
   [LEVEL_ONE]: {
     areas: [
       { key: "start", json: "startArea", bg: "startbg", bgSize: [3550, null] },
-      { key: "bird", json: "birdArea", bg: "cavebg" },
+      { key: "bird", json: "birdArea", bg: "cavebg", overlay: "fishareaOverlay" },
       {
         key: "fish",
         json: "fishArea",
@@ -629,8 +646,9 @@ function preload() {
   birdArea3 = loadJSON("data/3birdarea.json");
   endArea3 = loadJSON("data/3endarea.json");
 
-
   fishSheet = loadImage("assets/images/fish.png");
+  batFlySheet = loadImage("assets/images/batsSheet.png");
+  batIdleImg = loadImage("assets/images/batIdle.png");
 
   titleFrame1 = loadImage("assets/images/Title frame1.png");
   titleFrame2 = loadImage("assets/images/Title frame2.png");
@@ -731,6 +749,8 @@ function setup() {
   WIND_SPRITE.frameHeight = windImg.height;
   DRAGON_SLEEPING_SPRITE.frameWidth = dragonSleepingSheet.width / DRAGON_SLEEPING_SPRITE.numFrames;
   DRAGON_SLEEPING_SPRITE.frameHeight = dragonSleepingSheet.height;
+  BAT_SPRITE.frameWidth = batFlySheet.width / BAT_SPRITE.numFrames;
+  BAT_SPRITE.frameHeight = batFlySheet.height;
 
   if (birdBGsound) birdBGsound.setVolume(0.15);
 
@@ -851,6 +871,10 @@ function loadLevel(levelId) {
   setupDragonForLevel(levelId);
   setupBatsForLevel(levelId);
 
+  if (levelId === LEVEL_THREE && typeof initLevel3BossFight === "function") {
+  initLevel3BossFight();
+  }
+
   windZones = def.buildWindZones ? def.buildWindZones(levelAreas) : [];
 
   player.x = def.playerStart.x;
@@ -865,6 +889,7 @@ function loadLevel(levelId) {
   camY = constrain(player.y - height / 2, 0, WORLD_H - height);
   gameState = STATE_PLAY;
 }
+
 
 function findArea(levelAreas, key) {
   return levelAreas.find((a) => a.key === key);
@@ -1002,57 +1027,7 @@ function drawLevelScreen() {
   for (const area of levelAreas) {
     if (shouldDrawArea(area)) drawTiles(area);
   }
-/** 
-  if (gameState === STATE_PLAY) {
-    if (!isDebugModeActive()) {
-      updateMoveSpeed();
-      handleInput();
-      updateHumanBGSound();
-      updateBirdBGSound();
-       updateNoiseLevel();
-      updateWalkingSound();
-      updateFlappingSound();
-      updateFishAreaSound();
 
-      checkWindZones();
-      checkWaterTransform();
-      enforceLocationForm();
-
-      whirlpoolTimer++;
-      if (whirlpoolTimer >= WHIRLPOOL_SPRITE.animSpeed) {
-        whirlpoolTimer = 0;
-        whirlpoolFrame = (whirlpoolFrame + 1) % WHIRLPOOL_SPRITE.numFrames;
-      }
-      windTimer++;
-      if (windTimer >= WIND_SPRITE.animSpeed) {
-        windTimer = 0;
-        windFrame = (windFrame + 1) % WIND_SPRITE.numFrames;
-      }
-      runeTimer++;
-      if (runeTimer >= RUNE_SPRITE.animSpeed) {
-        runeTimer = 0;
-        runeFrame = (runeFrame + 1) % RUNE_SPRITE.numFrames;
-      }
-
-      resolveSolidCollisions();
-      checkWhirlpools();
-      checkKeys();
-      checkPortalEntrance();
-      checkHazardCollisions();
-      checkCheckpoints();
-      checkDragonCollision();
-      updateDragon();
-      updateBats();
-      checkBatCollision();
-      checkDragonFightTrigger();
-    }
-
-    drawWindZones();
-    animateCharacter();
-    drawPlayer();
-    drawDragon();
-    drawBats();
-    **/
    if (gameState === STATE_PLAY) {
     if (!isDebugModeActive()) {
       updateRespawnDelay();
@@ -1093,11 +1068,15 @@ function drawLevelScreen() {
         checkPortalEntrance();
         checkHazardCollisions();
         checkCheckpoints();
-        checkDragonCollision();
-        updateDragon();
-        updateBats();
-        checkBatCollision();
-        checkDragonFightTrigger();
+        
+        if (currentScreen === LEVEL_THREE) {
+  updateLevel3BossFight();
+} else {
+  checkDragonCollision();
+  updateDragon();
+}
+updateBats();
+checkBatCollision();
       }
     }
 
@@ -1107,21 +1086,29 @@ function drawLevelScreen() {
     drawDragon();
     drawBats();
 
+if (currentScreen === LEVEL_THREE && typeof drawLevel3BossFightWorld === "function") {
+      drawLevel3BossFightWorld();
+    }
+
     const fish = findArea(levelAreas, "fish");
     if (fish && fish.overlay) {
       image(fish.overlay, fish.bounds.x, fish.bounds.y, fish.bounds.w, 800);
     }
-  }
-      drawDragonDebugHitbox();
+
+    drawDragonDebugHitbox();
 
   pop();
   drawKeyHUD();
   drawNoiseHUD();
+  if (currentScreen === LEVEL_THREE && typeof drawLevel3HUD === "function") {
+  drawLevel3HUD();
+}
   drawInstructions();
   if (gameState === STATE_WIN && level1MessageImg) {
     stopAllGameSounds();
     drawEndScreen();
   }
+}
 }
 
 
@@ -1902,12 +1889,15 @@ function checkHazardCollisions() {
     const closestX = constrain(player.x, t.x, t.x + t.w);
     const closestY = constrain(player.y, t.y, t.y + t.h);
     if (dist(player.x, player.y, closestX, closestY) < player.r) {
-      respawnFromHazard();
+      if (currentScreen === LEVEL_THREE) {
+        playerTakeDragonHit(); // uses the 5-hit health bar, not checkpoint respawn
+      } else {
+        respawnFromHazard();
+      }
       break;
     }
   }
 }
-
 // ------------------------------------------------------------
 // checkCheckpoints()
 // Activates the furthest checkpoint the player has touched.
@@ -2161,16 +2151,24 @@ function wakeAllBats() {
   console.log("Bats awakened — chase started.");
 }
 
-function resetBats() {
+// Puts bats back to sleep at spawn. Does NOT touch the rune or
+// keyCollected — safe to call any time bats just need to go quiet
+// (e.g. player becomes a fish).
+function sleepBats() {
   batsWoken = false;
   for (const b of bats) {
     b.state = BAT_STATE.SLEEPING;
     b.x = b.spawnX;
     b.y = b.spawnY;
   }
+}
 
-  // Un-collect the specific rune that triggered the wake — same pattern
-  // as the dragon's trigger rune reset in respawnFromDragon().
+// Full reset used ONLY when a bat actually kills the player: puts
+// bats to sleep AND un-collects the 2nd rune, rolling keyCollected
+// back so barriers gated on it re-lock correctly.
+function resetBats() {
+  sleepBats();
+
   if (secondRuneKey) {
     keyMap.set(secondRuneKey, false);
     keyCollected = 1; // reset to 1 so the player has to re-collect the 2nd rune
@@ -2179,9 +2177,14 @@ function resetBats() {
   secondRuneKey = null;
 }
 
-
 function updateBats() {
   if (currentScreen !== LEVEL_TWO) return; // level restriction
+
+ // Bird -> fish transformation puts bats back to sleep.
+  // Does NOT touch the rune/keyCollected — only a bat kill does that.
+  if (player.form === FORM_FISH && batsWoken) {
+    sleepBats();
+  }
 
   for (const b of bats) {
     if (b.state !== BAT_STATE.AWAKE) continue; // sleeping bats stay at spawn
@@ -2195,18 +2198,38 @@ function updateBats() {
   }
 }
 
+
 // TEMP placeholder rendering — swap this function's body for real
 // bat sprites later; updateBats()/wakeAllBats() never need to change.
 function drawBats() {
   if (currentScreen !== LEVEL_TWO || bats.length === 0) return;
 
-  push();
-  rectMode(CENTER);
-  noStroke();
-  fill(255, 20, 147); // pink placeholder box
-  for (const b of bats) {
-    rect(b.x, b.y, TILE_SIZE * 0.8, TILE_SIZE * 0.8);
+  batAnimTimer++;
+  if (batAnimTimer >= BAT_SPRITE.animSpeed) {
+    batAnimTimer = 0;
+    batAnimFrame = (batAnimFrame + 1) % BAT_SPRITE.numFrames;
   }
+
+  push();
+  imageMode(CENTER);
+
+  for (const b of bats) {
+    if (b.state === BAT_STATE.AWAKE && batFlySheet) {
+      const sx = batAnimFrame * BAT_SPRITE.frameWidth;
+      const dw = BAT_SPRITE.frameWidth * BAT_SPRITE.scale;
+      const dh = BAT_SPRITE.frameHeight * BAT_SPRITE.scale;
+      image(
+        batFlySheet,
+        b.x, b.y, dw, dh,
+        sx, 0, BAT_SPRITE.frameWidth, BAT_SPRITE.frameHeight,
+      );
+    } else if (batIdleImg) {
+    const dw = batIdleImg.width * BAT_SPRITE.idleScale;
+    const dh = batIdleImg.height * BAT_SPRITE.idleScale;
+    image(batIdleImg, b.x, b.y, dw, dh);
+   }
+  }
+
   pop();
 }
  
@@ -2630,6 +2653,9 @@ function checkWhirlpools() {
 function updateNoiseLevel() {
   if (currentScreen !== LEVEL_TWO || player.form !== FORM_BIRD) return;
 
+  const bird = findArea(levelAreas, "bird");
+  if (!bird || player.x < bird.bounds.x + 10 * TILE_SIZE) return; // noise doesn't start until 10 tiles into the bird area
+
   if (player.isMoving) {
     player.noiseLevel = min(
       player.noiseLevel + NOISE_INCREASE_RATE,
@@ -2756,6 +2782,8 @@ function drawTiles(area) {
     if (layer.name === "water") continue;
     if (layer.name === "bg green") continue;
     if (layer.name === "background") continue;
+    if (layer.name === BAT_LAYER) continue;              
+    if (layer.name === DRAGON_SPAWN_LAYER) continue;
 
     let spikePositions = null;
     if (area.key === "bird" && layer.name === "spikes") {
@@ -3233,7 +3261,6 @@ function drawPlayer() {
 
 // ------------------------------------------------------------
 // keyPressed()
-// R restarts. B skips to boss fight.
 // ------------------------------------------------------------
 function keyPressed() {
   if (handleDebugKeyPress(key, keyCode)) {
