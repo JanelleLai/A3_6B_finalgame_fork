@@ -29,11 +29,9 @@ function buildDragonBlockedSet() {
   return blocked;
 }
 
-// A grid cell only counts as walkable for the dragon if its whole
-// 3x3 footprint would fit there — checks the tile plus the ring
-// around it, sized to DRAGON_CONFIG.tileSpan.
-function isDragonBlockedTile(tx, ty, blockedSet) {
-  const inflate = Math.floor(DRAGON_CONFIG.tileSpan / 2);
+// CHANGED — accepts tileSpanTiles instead of hardcoding DRAGON_CONFIG.tileSpan
+function isDragonBlockedTile(tx, ty, blockedSet, tileSpanTiles = DRAGON_CONFIG.tileSpan) {
+  const inflate = Math.floor(tileSpanTiles / 2);
   for (let dx = -inflate; dx <= inflate; dx++) {
     for (let dy = -inflate; dy <= inflate; dy++) {
       if (blockedSet.has(tileKey(tx + dx, ty + dy))) return true;
@@ -46,8 +44,7 @@ function heuristic(tx, ty, gx, gy) {
   return Math.hypot(gx - tx, gy - ty);
 }
 
-function findDragonPath(startTx, startTy, goalTx, goalTy, blockedSet) {
-  const startKey = tileKey(startTx, startTy);
+function findDragonPath(startTx, startTy, goalTx, goalTy, blockedSet, tileSpanTiles = DRAGON_CONFIG.tileSpan) {  const startKey = tileKey(startTx, startTy);
   const goalKey = tileKey(goalTx, goalTy);
 
   const open = new Map();
@@ -92,15 +89,15 @@ function findDragonPath(startTx, startTy, goalTx, goalTy, blockedSet) {
       const nty = currentNode.ty + dy;
       const nKey = tileKey(ntx, nty);
       if (closed.has(nKey)) continue;
-      if (isDragonBlockedTile(ntx, nty, blockedSet)) continue;
+  if (isDragonBlockedTile(ntx, nty, blockedSet, tileSpanTiles)) continue;
 
       // Don't let it cut diagonally through a wall corner
-      if (dx !== 0 && dy !== 0) {
-        if (
-          isDragonBlockedTile(currentNode.tx + dx, currentNode.ty, blockedSet) ||
-          isDragonBlockedTile(currentNode.tx, currentNode.ty + dy, blockedSet)
-        ) continue;
-      }
+       if (dx !== 0 && dy !== 0) {
+    if (
+      isDragonBlockedTile(currentNode.tx + dx, currentNode.ty, blockedSet, tileSpanTiles) ||
+      isDragonBlockedTile(currentNode.tx, currentNode.ty + dy, blockedSet, tileSpanTiles)
+    ) continue;
+  }
 
       const tentativeG = gScore.get(currentKey) + cost;
       if (tentativeG < (gScore.get(nKey) ?? Infinity)) {
@@ -114,17 +111,22 @@ function findDragonPath(startTx, startTy, goalTx, goalTy, blockedSet) {
   return null; // no path exists
 }
 
-function recalcDragonPath() {
-  const blocked = buildDragonBlockedSet();
-  const startTx = Math.round(dragon.x / TILE_SIZE);
-  const startTy = Math.round(dragon.y / TILE_SIZE);
-  const goalTx = Math.round(player.x / TILE_SIZE);
-  const goalTy = Math.round(player.y / TILE_SIZE);
 
-  const path = findDragonPath(startTx, startTy, goalTx, goalTy, blocked);
+// ADDED — generic version any entity (dragon, level3Boss, etc.) can call
+function recalcEntityPath(entity, tileSpanTiles, targetX, targetY) {
+  const blocked = buildDragonBlockedSet();
+  const startTx = Math.round(entity.x / TILE_SIZE);
+  const startTy = Math.round(entity.y / TILE_SIZE);
+  const goalTx = Math.round(targetX / TILE_SIZE);
+  const goalTy = Math.round(targetY / TILE_SIZE);
+  return findDragonPath(startTx, startTy, goalTx, goalTy, blocked, tileSpanTiles);
+}
+
+// CHANGED — recalcDragonPath is now just a thin wrapper around the generic version
+function recalcDragonPath() {
+  const path = recalcEntityPath(dragon, DRAGON_CONFIG.tileSpan, player.x, player.y);
   if (path) {
     dragonPath = path;
     dragonPathIndex = 0;
   }
-  // if no path found, keep the stale one — it'll retry next interval
-}
+}  // if no path found, keep the stale one — it'll retry next interval

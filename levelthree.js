@@ -19,16 +19,19 @@ const BOSS3_STATE = {
   AIMING: "aiming",
   CHARGING: "charging",
   STUNNED: "stunned",
+  CHASING: "chasing", // ADDED — FLY-phase continuous pursuit
 };
 
+// ADDED — reuse chargeSpeed's neighbor; tune independently if it feels too fast/slow
 const LEVEL3_BOSS_CONFIG = {
   maxHealth: 1000,
   wallDamage: 100,
   chargeSpeed: 6,
+  chaseSpeed: 4,   // ADDED — FLY-phase pursuit speed
   telegraphFrames: 90,
   stunFrames: 70,
   tileSpan: 2.5,
-  triggerFraction: 0.35
+  triggerFraction: 0.35,
 };
 
 const PLAYER_HIT_INVINCIBLE_FRAMES = 90;
@@ -55,6 +58,10 @@ let level3BarrierActive = false;
 let level3Phase = LEVEL3_PHASE.SWIM;
 let rockPedestals = []; // static pedestal positions, set once
 let thrownRocks = []; // active in-flight projectiles
+
+let level3BossPath = [];
+let level3BossPathIndex = 0;
+let level3BossPathRecalcTimer = 0;
 
 // ------------------------------------------------------------
 // initLevel3BossFight() — called once from loadLevel(LEVEL_THREE)
@@ -105,7 +112,8 @@ function initLevel3BossFight() {
   player.invincible = false;
   player.invincibleTimer = 0;
 
-  level3CamZoomTarget = 0.6; // wider baseline for the boss arena
+level3CamZoomTarget = 0.8; // CHANGED from 0.6 — stays normal while player is still in fish spawn
+
 level3FishSpawnBounds = getFishSpawnBounds();
 }
 
@@ -294,7 +302,7 @@ function moveToLevel3BirdArena() {
   const cx = bird.bounds.x + bird.bounds.w / 2;
   const cy = bird.bounds.y + bird.bounds.h / 2;
 
-  player.x = cx;
+  player.x = cx - 2 * TILE_SIZE;
   player.y = cy - 2 * TILE_SIZE;
   player.vx = 0;
   player.vy = 0;
@@ -304,8 +312,11 @@ function moveToLevel3BirdArena() {
   level3Boss.y = cy;
   level3Boss.vx = 0;
   level3Boss.vy = 0;
-  level3Boss.state = BOSS3_STATE.AIMING;
-  level3Boss.timer = LEVEL3_BOSS_CONFIG.telegraphFrames;
+  level3Boss.state = BOSS3_STATE.CHASING; // CHANGED from AIMING
+  level3Boss.timer = 0;                    // CHANGED — telegraph timer no longer used here
+  level3BossPath = [];                     // ADDED
+  level3BossPathIndex = 0;                 // ADDED
+  level3BossPathRecalcTimer = DRAGON_PATH_RECALC_INTERVAL; // ADDED — force a fresh path next frame
 
   thrownRocks = [];
   rockPedestals = [
@@ -324,11 +335,21 @@ function moveToLevel3BirdArena() {
 function updateLevel3BossFight() {
   if (!level3Boss || currentScreen !== LEVEL_THREE || gameState !== STATE_PLAY)
     return;
+  level3CamZoomTarget = playerInFishSpawn() ? 0.8 : 0.6; // ADDED to zoom out for the boss arena, but not while the player is still in the fish spawn
 
   if (playerInFishSpawn()) {
     level3Boss.state = BOSS3_STATE.DORMANT;
     deactivateLevel3Barrier();
     return; // sleeping, no collision/telegraph/charge logic runs
+  }
+
+  // ADDED — bird arena: continuous pursuit instead of charge/telegraph/stun
+  if (level3Phase === LEVEL3_PHASE.FLY) {
+    level3Boss.state = BOSS3_STATE.CHASING;
+    updateLevel3BossChase();
+    checkLevel3BossPlayerCollision();
+    updateLevel3Rocks();
+    return;
   }
 
   if (level3Boss.state === BOSS3_STATE.DORMANT) {
@@ -474,12 +495,17 @@ function restartLevel3Stage() {
   player.invincibleTimer = 0;
 
   if (level3Boss) {
-    level3Boss.vx = 0;
-    level3Boss.vy = 0;
+  level3Boss.vx = 0;
+  level3Boss.vy = 0;
+
+  if (level3Phase === LEVEL3_PHASE.FLY) {          // ADDED branch
+    level3Boss.state = BOSS3_STATE.CHASING;
+    level3BossPath = [];
+    level3BossPathIndex = 0;
+    level3BossPathRecalcTimer = DRAGON_PATH_RECALC_INTERVAL; // force recalc next frame
+  } else {
     level3Boss.state =
-      player.x >= level3Boss.triggerX
-        ? BOSS3_STATE.AIMING
-        : BOSS3_STATE.DORMANT;
+      player.x >= level3Boss.triggerX ? BOSS3_STATE.AIMING : BOSS3_STATE.DORMANT;
     level3Boss.timer = LEVEL3_BOSS_CONFIG.telegraphFrames;
 
     if (level3Boss.state === BOSS3_STATE.DORMANT) {
@@ -488,6 +514,7 @@ function restartLevel3Stage() {
       activateLevel3Barrier();
     }
   }
+}
 
   // Note: level3Phase is intentionally NOT reset here — once the boss
   // drops to phase 2, the fight stays aerial even after a player death.
@@ -647,3 +674,42 @@ function drawLevel3HUD() {
     pop();
   }
 }
+
+// ADDED — mirrors updateDragon()/recalcDragonPath() from level 2
+function updateLevel3BossChase() {
+  level3BossPathRecalcTimer++;
+  if (
+    level3BossPathRecalcTimer >= DRAGON_PATH_RECALC_INTERVAL ||
+    level3BossPathIndex >= level3BossPath.length
+  ) {
+    level3BossPathRecalcTimer = 0;
+    const path = recalcEntityPath(level3Boss, LEVEL3_BOSS_CONFIG.tileSpan, player.x, player.y);
+    if (path) {
+      level3BossPath = path;
+      level3BossPathIndex = 0;
+    }
+  }
+
+  let target = { x: player.x, y: player.y }; // fallback if no path yet
+  if (level3BossPath.length > 0 && level3BossPathIndex < level3BossPath.length) {
+    const node = level3BossPath[level3BossPathIndex];
+    target = {
+      x: node.tx * TILE_SIZE + TILE_SIZE / 2,
+      y: node.ty * TILE_SIZE + TILE_SIZE / 2,
+    };
+    if (dist(level3Boss.x, level3Boss.y, target.x, target.y) < DRAGON_PATH_WAYPOINT_RADIUS) {
+      level3BossPathIndex++;
+    }
+  }
+
+  const dx = target.x - level3Boss.x;
+  const dy = target.y - level3Boss.y;
+  const d = Math.sqrt(dx * dx + dy * dy) || 1;
+
+  level3Boss.x += (dx / d) * LEVEL3_BOSS_CONFIG.chaseSpeed;
+  level3Boss.y += (dy / d) * LEVEL3_BOSS_CONFIG.chaseSpeed;
+  level3Boss.facing = dx < 0 ? "left" : "right";
+
+  resolveLevel3BossSolidCollisions();
+}
+

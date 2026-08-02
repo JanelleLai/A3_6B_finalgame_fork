@@ -293,11 +293,14 @@ const BAT_STATE = {
   SLEEPING: "sleeping",
   AWAKE: "awake",
 };
-const BAT_SPEED_MULTIPLIER = 0.7; // bats move at 150% of the bird's move speed
+const BAT_SPEED_MULTIPLIER = 0.65; // bats speed 65% of bird sped
 let bats = []; // [{x,y,spawnX,spawnY,state,speed}] — current level's bats
 let batSpawnTiles = []; // raw "bat" layer tiles for the current level
 let batsWoken = false; // once true, stays true — bats never go back to sleep
 let secondRuneKey = null;
+const NOISE_SHAKE_THRESHOLD = 0.6;
+const NOISE_SHAKE_AMOUNT = 7;  
+
 
 
 // dragon stuff
@@ -315,7 +318,7 @@ const DRAGON_CONFIG = {
   behindOffsetX: 17 * TILE_SIZE,
   maxHealth: 100,
 
-  hitboxOffsetX: 30, // shifts hitbox toward the front (head) — tune this
+  hitboxOffsetX: 60, // shifts hitbox toward the front (head) — tune this
   hitboxOffsetY: -10, // optional: nudge up/down, negative = up
 };
 
@@ -431,6 +434,7 @@ let flappingsound;
 let fishareasound;
 let humanBGsound;
 let birdBGsound;
+let batsound;
 
 // ------------------------------------------------------------
 // ADDED — TILE PHYSICS
@@ -543,7 +547,7 @@ const LEVELS = {
         json: "endArea3",
       },
     ],
-    playerStart: { x: 20 * TILE_SIZE, y: 20 * TILE_SIZE },
+    playerStart: { x: 10 * TILE_SIZE, y: 26 * TILE_SIZE },
   },
 };
 
@@ -719,9 +723,10 @@ function preload() {
   }
   chaseMusic = loadSound("assets/sounds/chaseMusic.mp3");
   if (chaseMusic) {
-    chaseMusic.setVolume(0.2);
+    chaseMusic.setVolume(0.25);
   }
   dragonGrowl = loadSound("assets/sounds/dragongrowl.mp3");
+  batsound = loadSound("assets/sounds/bats.mp3");
 
 
     rawAssets = {
@@ -1190,40 +1195,58 @@ function drawDragonDebugHitbox() {
 
 function drawNoiseHUD() {
   if (currentScreen !== LEVEL_TWO || player.form !== FORM_BIRD) return;
-  
+
   const bird = findArea(levelAreas, "bird");
   if (!bird || player.x < bird.bounds.x) return; // don't show until actually inside the bird area
 
-  const barW = 140;
-  const barH = 14;
-  const x = width / 2 - barW / 2;
-  const y = height - 55;
+  const barW = 40;
+  const barH = 220;
+  const baseX = 100;
+  const baseY = height / 2 - barH / 2;
+
+  const t = constrain(player.noiseLevel / NOISE_LEVEL_MAX, 0, 1);
+
+  // Vigorous shake once noise is deep in the red zone — a visible warning
+  let shakeX = 0;
+  let shakeY = 0;
+  if (t >= NOISE_SHAKE_THRESHOLD) {
+    shakeX = random(-NOISE_SHAKE_AMOUNT, NOISE_SHAKE_AMOUNT);
+    shakeY = random(-NOISE_SHAKE_AMOUNT, NOISE_SHAKE_AMOUNT);
+  }
+
+  const x = baseX + shakeX;
+  const y = baseY + shakeY;
 
   push();
   noStroke();
   fill(0, 0, 0, 140);
-  rect(x - 6, y - 6, barW + 12, barH + 24, 8);
+  rect(x - 10, y - 30, barW + 20, barH + 40, 8);
 
   fill(255);
   textSize(11);
   textFont("monospace");
   textAlign(CENTER, TOP);
-  text("NOISE", x + barW / 2, y);
+  text("NOISE", x + barW / 2, y - 20);
 
-  const fillW = map(player.noiseLevel, 0, NOISE_LEVEL_MAX, 0, barW);
+  // Track (empty background of the bar)
   fill(60, 60, 60);
-  rect(x, y + 14, barW, barH, 4); // track
+  rect(x, y, barW, barH, 4);
 
-  // colour ramps from calm green to alert red as it fills
-  fill(
-    map(player.noiseLevel, 0, NOISE_LEVEL_MAX, 80, 220),
-    map(player.noiseLevel, 0, NOISE_LEVEL_MAX, 200, 40),
-    40,
-  );
-  rect(x, y + 14, fillW, barH, 4);
+  // Fill height, growing from the bottom up as noise increases
+  const fillH = barH * t;
+
+  // Colour ramps green -> yellow -> red as noise climbs
+  let fillColor;
+  if (t < 0.5) {
+    fillColor = lerpColor(color(60, 220, 80), color(230, 220, 40), t / 0.5);
+  } else {
+    fillColor = lerpColor(color(230, 220, 40), color(220, 40, 40), (t - 0.5) / 0.5);
+  }
+
+  fill(fillColor);
+  rect(x, y + (barH - fillH), barW, fillH, 4);
   pop();
 }
-
  
 function drawEndScreen() {
   push();
@@ -1465,7 +1488,7 @@ function updateFlappingSound() {
 
   const inBirdArea =
     player.x >= bird.bounds.x && player.x < bird.bounds.x + bird.bounds.w;
-  const isFlapping = keyIsDown(87);
+  const isFlapping = keyIsDown(87) || keyIsDown(UP_ARROW);
   const shouldPlay =
     player.form === FORM_BIRD && inBirdArea && (player.isMoving || isFlapping);
 
@@ -1487,6 +1510,7 @@ function stopAllGameSounds() {
     diesound,
     chaseMusic,
     dragonGrowl,
+    batsound,
   ];
   for (const s of sounds) {
     if (s && s.isPlaying && s.isPlaying()) {
@@ -1516,7 +1540,7 @@ function animateCharacter() {
     }
   } else if (player.form === FORM_BIRD) {
     // Bird animation (unchanged)
-    let isFlapping = keyIsDown(87);
+    let isFlapping = keyIsDown(87) || keyIsDown(UP_ARROW);
     let currentAnimMode = isFlapping ? "flying" : "running";
     let maxFrames = BIRD_SPRITE.maxFrames[currentAnimMode];
     if (isFlapping || player.isMoving) {
@@ -2201,6 +2225,7 @@ function wakeAllBats() {
   for (const b of bats) {
     b.state = BAT_STATE.AWAKE;
   }
+batsound.play();
   console.log("Bats awakened — chase started.");
 }
 
@@ -2209,6 +2234,7 @@ function wakeAllBats() {
 // (e.g. player becomes a fish).
 function sleepBats() {
   batsWoken = false;
+  batsound.stop();
   for (const b of bats) {
     b.state = BAT_STATE.SLEEPING;
     b.x = b.spawnX;
@@ -2500,14 +2526,6 @@ function respawnFromDragon() {
   });
 }
  
-// ============================================================
-// 8) Drawing — placeholder until you have a dragon spritesheet
-// ------------------------------------------------------------
-// Swap this for a real sprite the same way FISH_SPRITE/BIRD_SPRITE
-// work: a DRAGON_SPRITE config with frameWidth/frameHeight/rows,
-// picking a row per dragon.state and dragon.facing.
-// ============================================================
- 
 function drawDragon() {
   if (!dragon) return;
 
@@ -2662,7 +2680,13 @@ function updateNoiseLevel() {
   if (currentScreen !== LEVEL_TWO || player.form !== FORM_BIRD) return;
 
   const bird = findArea(levelAreas, "bird");
-  if (!bird || player.x < bird.bounds.x + 10 * TILE_SIZE) return; // noise doesn't start until 10 tiles into the bird area
+
+  // Before the noise-tracking zone: don't accumulate, but keep decaying
+  // any noise the player already built up, instead of freezing it.
+  if (!bird || player.x < bird.bounds.x + 10 * TILE_SIZE) {
+    player.noiseLevel = max(player.noiseLevel - NOISE_DECAY_RATE, 0);
+    return;
+  }
 
   if (player.isMoving) {
     player.noiseLevel = min(
@@ -3116,23 +3140,23 @@ function handleInput() {
 
   // --- Horizontal Movement ---
   if (player.form === FORM_HUMAN) {
-    if (keyIsDown(65)) {
+    if (keyIsDown(65) || keyIsDown(LEFT_ARROW)) {
       player.x -= HUMAN_SPEED;
       player.facing = "left";
       player.isMoving = true;
     }
-    if (keyIsDown(68)) {
+    if (keyIsDown(68) || keyIsDown(RIGHT_ARROW)) {
       player.x += HUMAN_SPEED;
       player.facing = "right";
       player.isMoving = true;
     }
   } else {
-    if (keyIsDown(65)) {
+    if (keyIsDown(65) || keyIsDown(LEFT_ARROW)) {
       player.x -= moveSpeed;
       player.facing = "left";
       player.isMoving = true;
     }
-    if (keyIsDown(68)) {
+    if (keyIsDown(68) || keyIsDown(RIGHT_ARROW)) {
       player.x += moveSpeed;
       player.facing = "right";
       player.isMoving = true;
@@ -3159,14 +3183,14 @@ function handleInput() {
     }
     player.flapVelocity *= 1 - FISH_FLAP_DECAY;
     player.vy += player.flapVelocity;
-    if (keyIsDown(83)) {
+    if (keyIsDown(83) || keyIsDown(DOWN_ARROW)) {
       player.vy += FISH_SWIM_DOWN;
       player.isMoving = true;
       player.facing = "down"; // ADD
     }
     // Reset to left/right when moving horizontally
-    if (keyIsDown(65)) player.facing = "left";
-    if (keyIsDown(68)) player.facing = "right";
+    if (keyIsDown(65) || keyIsDown(LEFT_ARROW)) player.facing = "left";
+    if (keyIsDown(68) || keyIsDown(RIGHT_ARROW)) player.facing = "right";
 
     player.vy *= FISH_WATER_DRAG;
     player.vx *= FISH_WATER_DRAG;
@@ -3183,7 +3207,7 @@ function handleInput() {
     player.vy = constrain(player.vy, -TERMINAL_VELOCITY, TERMINAL_VELOCITY);
     player.y += player.vy;
 
-    if (player.form === FORM_BIRD && keyIsDown(87)) {
+    if (player.form === FORM_BIRD && (keyIsDown(87) || keyIsDown(UP_ARROW))) {
       player.vy = FLAP_FORCE;
        player.isMoving = true;
     }
@@ -3262,7 +3286,7 @@ function drawPlayer() {
     rect(bx, by + (barH - fill_h), barW, fill_h, 2); // fills from bottom up
   } else {
     // --- Render Bird --- (existing code unchanged)
-    let isFlapping = keyIsDown(87);
+    let isFlapping = keyIsDown(87) || keyIsDown(UP_ARROW);
     let animMode = isFlapping ? "flying" : "running";
     let row = BIRD_SPRITE.rows[animMode];
     let safeFrame = player.currentFrame % BIRD_SPRITE.maxFrames[animMode];
@@ -3321,12 +3345,16 @@ function keyPressed() {
   const canJump =
     player.form === FORM_HUMAN && !playerInWater() && player.jumpCooldown <= 0;
 
-  if ((key === "w" || key === "W" || keyCode === 87 || key === " " || keyCode === 32) && canJump) {
+  if (
+    (key === "w" || key === "W" || keyCode === 87 || keyCode === UP_ARROW ||
+      key === " " || keyCode === 32) &&
+    canJump
+  ) {
     player.vy = -14;
     player.jumpCooldown = 30;
-}
+  }
 
-if ((keyCode === 87 || keyCode === 32) && playerInWater()) {
+if ((keyCode === 87 || keyCode === UP_ARROW || keyCode === 32) && playerInWater()) {
     player.flapQueued = true;
 }
 }
