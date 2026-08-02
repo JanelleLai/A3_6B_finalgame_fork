@@ -15,20 +15,20 @@
 // ============================================================
 
 const BOSS3_STATE = {
-  DORMANT: "dormant", // asleep until the player crosses the trigger line
-  AIMING: "aiming", // paused, locking onto the player's position
-  CHARGING: "charging", // moving in a straight line at chargeSpeed
-  STUNNED: "stunned", // recovering after slamming into a wall
+  DORMANT: "dormant",
+  AIMING: "aiming",
+  CHARGING: "charging",
+  STUNNED: "stunned",
 };
 
 const LEVEL3_BOSS_CONFIG = {
   maxHealth: 1000,
   wallDamage: 100,
-  chargeSpeed: 6, // was 10 — slower charge, easier to sidestep
-  telegraphFrames: 90, // was 60 — ~1.5s warning instead of ~1s
-  stunFrames: 70, // was 45 — longer breather after a miss
-  tileSpan: 2.5, // was 3 — slightly smaller hitbox
-  triggerFraction: 0.35, // boss wakes once player crosses 35% into the arena
+  chargeSpeed: 6,
+  telegraphFrames: 90,
+  stunFrames: 70,
+  tileSpan: 2.5,
+  triggerFraction: 0.35
 };
 
 const PLAYER_HIT_INVINCIBLE_FRAMES = 90;
@@ -239,6 +239,45 @@ function damageLevel3Boss(amount) {
   }
 }
 
+function hasLineOfSightLevel3(x0, y0, x1, y1) {
+  const halfW = level3Boss.w / 2;
+  const halfH = level3Boss.h / 2;
+  const b = getLevel3ArenaBounds();
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const d = Math.sqrt(dx * dx + dy * dy) || 1;
+  const steps = Math.ceil(d / (TILE_SIZE * 0.5));
+
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    const px = x0 + dx * t;
+    const py = y0 + dy * t;
+
+    if (px - halfW <= b.left || px + halfW >= b.right || py - halfH <= b.top || py + halfH >= b.bottom)
+      return false;
+
+    for (const tile of solidTiles) {
+      const overlapsX = px + halfW > tile.x && px - halfW < tile.x + tile.w;
+      const overlapsY = py + halfH > tile.y && py - halfH < tile.y + tile.h;
+      if (overlapsX && overlapsY) return false;
+    }
+  }
+  return true;
+}
+
+function resolveLevel3BossSolidCollisions() {
+  const halfW = level3Boss.w / 2;
+  const halfH = level3Boss.h / 2;
+  const b = getLevel3ArenaBounds();
+
+  level3Boss.x = constrain(level3Boss.x, b.left + halfW, b.right - halfW);
+  level3Boss.y = constrain(level3Boss.y, b.top + halfH, b.bottom - halfH);
+
+  for (const t of solidTiles) {
+    resolveBoxRect(level3Boss, halfW, halfH, t); // reuses the helper already in sketch.js
+  }
+}
+
 function enterLevel3FlyPhase() {
   level3Phase = LEVEL3_PHASE.FLY;
   player.form = FORM_BIRD;
@@ -323,22 +362,20 @@ function updateLevel3BossFight() {
     level3Boss.y += level3Boss.vy;
 
     if (level3BossHitsWall()) {
-      // Roll back to the last position we know was clear — this works for
-      // both arena-boundary hits and interior solidTiles hits, and it
-      // guarantees the boss isn't left flush/embedded against whatever
-      // it hit, so the next charge attempt has to actually travel before
-      // it can register another collision.
-      level3Boss.x = prevX;
-      level3Boss.y = prevY;
-      level3Boss.vx = 0;
-      level3Boss.vy = 0;
-      level3Boss.state = BOSS3_STATE.STUNNED;
-      level3Boss.timer = LEVEL3_BOSS_CONFIG.stunFrames;
-      dragonGrowl.play();
+  level3Boss.x = prevX;
+  level3Boss.y = prevY;
+  level3Boss.vx = 0;
+  level3Boss.vy = 0;
+  level3Boss.state = BOSS3_STATE.STUNNED;
+  level3Boss.timer = LEVEL3_BOSS_CONFIG.stunFrames;
+  dragonGrowl.play();
 
-      damageLevel3Boss(LEVEL3_BOSS_CONFIG.wallDamage);
-      if (level3Boss.hp <= 0) return; // damageLevel3Boss already set STATE_WIN
-    }
+  // Wall-slam damage only applies in the fish arena (phase 1 / SWIM).
+  if (level3Phase === LEVEL3_PHASE.SWIM) {
+    damageLevel3Boss(LEVEL3_BOSS_CONFIG.wallDamage);
+    if (level3Boss.hp <= 0) return;
+  }
+}
   } else if (level3Boss.state === BOSS3_STATE.STUNNED) {
     level3Boss.timer--;
     if (level3Boss.timer <= 0) {
@@ -346,6 +383,7 @@ function updateLevel3BossFight() {
       level3Boss.timer = LEVEL3_BOSS_CONFIG.telegraphFrames;
     }
   }
+
 
   checkLevel3BossPlayerCollision();
   updateLevel3Rocks();

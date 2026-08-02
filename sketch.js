@@ -307,13 +307,18 @@ const DRAGON_STATE = {
   CHASING: "chasing",
   FIGHTING: "fighting",  
 };
+
 const DRAGON_CONFIG = {
-  tileSpan: 2, // hitbox is 2x2 tiles, like the request — same units as TILE_SIZE  
-  chaseSpeed: 4.3, // base speed while chasing, before seaweed slow
-  seaweedSlowFactor: 1.5, // dragon is slowed (player uses 2.5, see SEAWEED_SLOW_FACTOR)
-  behindOffsetX: 17 * TILE_SIZE, // how far left of the player it reappears after a post-CP2 death
-  maxHealth: 100, // not used this level — wired up now so level 3 just reads/writes it
+  tileSpan: 2,
+  chaseSpeed: 4.3,
+  seaweedSlowFactor: 1.5,
+  behindOffsetX: 17 * TILE_SIZE,
+  maxHealth: 100,
+
+  hitboxOffsetX: 30, // shifts hitbox toward the front (head) — tune this
+  hitboxOffsetY: -10, // optional: nudge up/down, negative = up
 };
+
 let dragon = null; // null on any level without a dragon; built in setupDragonForLevel()
 let dragonSpawnTiles = []; // raw "dragon spawn" layer tiles for the current level
 let dragonSpawnPoint = null; // {x,y} centroid of dragonSpawnTiles — the sleeping position
@@ -971,6 +976,15 @@ function buildLevel2WindZones(levelAreas) {
   return zones;
 }
 
+function getDragonHitboxCenter() {
+  if (!dragon) return { x: 0, y: 0 };
+  const facingSign = dragon.facing === "left" ? -1 : 1;
+  return {
+    x: dragon.x + facingSign * DRAGON_CONFIG.hitboxOffsetX,
+    y: dragon.y + DRAGON_CONFIG.hitboxOffsetY,
+  };
+}
+
 function shouldDrawArea(area) {
   const bounds = area.bounds;
   if (!bounds) return false;
@@ -1009,7 +1023,7 @@ function drawInstructions() {
   text("CONTROLS:", 24, height - 100);
   fill(200);
   text("A / D / S — move", 24, height - 82);
-  text("W  — jump", 24, height - 66);
+  text("W or space — jump", 24, height - 66);
   text("", 24, height - 50);
   pop();
 }
@@ -1129,39 +1143,37 @@ let DEBUG_SHOW_DRAGON_HITBOX = true; // flip to false, or toggle at runtime (see
 
 function drawDragonDebugHitbox() {
   if (!dragon || !DEBUG_SHOW_DRAGON_HITBOX) return;
- 
+
+  const hitbox = getDragonHitboxCenter();
+
   push();
   rectMode(CENTER);
- 
-  // The hitbox itself — exactly what resolveDragonSolidCollisions()
-  // and checkDragonCollision() use, nothing fudged for display.
+
   noFill();
   stroke(0, 255, 0);
   strokeWeight(2);
-  rect(dragon.x, dragon.y, dragon.w, dragon.h);
- 
-  // Center point, so you can see dragon.x/dragon.y directly
+  rect(hitbox.x, hitbox.y, dragon.w, dragon.h);
+
   stroke(0, 255, 0);
   strokeWeight(4);
-  point(dragon.x, dragon.y);
- 
-  // The trigger rune — this is the thing you're trying to check
+  point(hitbox.x, hitbox.y);
+
   if (dragonTriggerRunePos) {
     const halfW = dragon.w / 2;
     const halfH = dragon.h / 2;
     const insideX =
-      dragonTriggerRunePos.x > dragon.x - halfW &&
-      dragonTriggerRunePos.x < dragon.x + halfW;
+      dragonTriggerRunePos.x > hitbox.x - halfW &&
+      dragonTriggerRunePos.x < hitbox.x + halfW;
     const insideY =
-      dragonTriggerRunePos.y > dragon.y - halfH &&
-      dragonTriggerRunePos.y < dragon.y + halfH;
+      dragonTriggerRunePos.y > hitbox.y - halfH &&
+      dragonTriggerRunePos.y < hitbox.y + halfH;
     const isInside = insideX && insideY;
- 
+
     noFill();
-    stroke(isInside ? color(255, 0, 0) : color(255, 255, 0)); // red = inside, yellow = outside
+    stroke(isInside ? color(255, 0, 0) : color(255, 255, 0));
     strokeWeight(2);
     ellipse(dragonTriggerRunePos.x, dragonTriggerRunePos.y, 16, 16);
- 
+
     noStroke();
     fill(255);
     textAlign(CENTER, BOTTOM);
@@ -1172,10 +1184,9 @@ function drawDragonDebugHitbox() {
       dragonTriggerRunePos.y - 12,
     );
   }
- 
+
   pop();
 }
- 
 
 function drawNoiseHUD() {
   if (currentScreen !== LEVEL_TWO || player.form !== FORM_BIRD) return;
@@ -2326,6 +2337,7 @@ function updateDragon() {
 // Same idea as resolveSolidCollisions()/resolveCircleRect() for the
 // player, but box-vs-box (AABB) since the dragon is a 3x3 tile block
 // rather than a circle. Respects the same rune-gated barriers.
+/** 
 function resolveDragonSolidCollisions() {
   if (!dragon) return;
   const halfW = dragon.w / 2;
@@ -2337,7 +2349,25 @@ function resolveDragonSolidCollisions() {
     resolveBoxRect(dragon, halfW, halfH, t);
   }
 }
- 
+**/
+function resolveDragonSolidCollisions() {
+  if (!dragon) return;
+  const halfW = dragon.w / 2;
+  const halfH = dragon.h / 2;
+
+  const hitbox = getDragonHitboxCenter();
+  const proxy = { x: hitbox.x, y: hitbox.y };
+
+  for (const t of solidTiles) {
+    const requiredKeys = GATE_LAYERS[t.layerName];
+    if (requiredKeys !== undefined && keyCollected >= requiredKeys) continue;
+    resolveBoxRect(proxy, halfW, halfH, t);
+  }
+
+  dragon.x += proxy.x - hitbox.x;
+  dragon.y += proxy.y - hitbox.y;
+} 
+
 function resolveBoxRect(entity, halfW, halfH, rect) {
   const left = entity.x - halfW;
   const right = entity.x + halfW;
@@ -2367,6 +2397,7 @@ function checkDragonCollision() {
 
   const halfW = dragon.w / 2;
   const halfH = dragon.h / 2;
+  const hitbox = getDragonHitboxCenter();
   const closestX = constrain(player.x, dragon.x - halfW, dragon.x + halfW);
   const closestY = constrain(player.y, dragon.y - halfH, dragon.y + halfH);
 
@@ -2401,72 +2432,6 @@ function updateCamZoom() {
   const target = currentScreen === LEVEL_THREE ? level3CamZoomTarget : chaseCamZoomTarget;
   camZoom = lerp(camZoom, target, 0.03);
 }
-/**function respawnFromDragon() {
-  if (diesound) diesound.play();
-  stopAllGameSounds();
- 
-  const reachedAfter =
-    fishCheckpointAfterDragon !== -1 &&
-    activeCheckpointIndex >= fishCheckpointAfterDragon;
- 
-  if (reachedAfter) {
-    // Died mid-chase, past CP2 — resume the chase, dragon reappears
-    // slightly behind and to the left of the player.
-    const cp = checkpoints[fishCheckpointAfterDragon];
-    player.x = cp.spawnX;
-    player.y = cp.spawnY;
-    player.stamina = FISH_STAMINA_MAX;
-    player.flapVelocity = 0;
-    player.flapQueued = false;
- 
-    dragon.state = DRAGON_STATE.CHASING;
-    dragon.x = player.x - DRAGON_CONFIG.behindOffsetX;
-    dragon.y = player.y;
- 
-    chaseCamZoomTarget = 0.7;
-
-    dragonPath = [];
-    dragonPathIndex = 0;
-    dragonPathRecalcTimer = DRAGON_PATH_RECALC_INTERVAL; // forces recalc on the very next updateDragon() call
-
-    if (chaseMusic && !chaseMusic.isPlaying()) chaseMusic.loop();
-  } else {
-    // Died before CP2 (either before CP1, or between CP1 and CP2) —
-    // full reset of the encounter: dragon asleep, rune un-collected.
-    const cpIndex =
-      fishCheckpointBeforeDragon !== -1
-        ? fishCheckpointBeforeDragon
-        : activeCheckpointIndex;
-    const cp = checkpoints[cpIndex] || null;
-    const spawn = cp ? { x: cp.spawnX, y: cp.spawnY } : lastCheckpoint || playerStart;
- 
-    player.x = spawn.x;
-    player.y = spawn.y;
- 
-    dragon.state = DRAGON_STATE.SLEEPING;
-    dragon.x = dragonSpawnPoint.x;
-    dragon.y = dragonSpawnPoint.y;
- 
-    if (dragonTriggerRuneKey) {
-      keyMap.set(dragonTriggerRuneKey, false);
-      keyCollected = 2; // reset to 2 so the player has to pick it up again
-      portalUnlocked = portalIsUnlocked();
-    }
- 
-    chaseCamZoomTarget = 0.8;
-  }
- 
-  player.vy = 0;
-  player.vx = 0;
-  player.bounceVX = 0;
-  player.bounceVY = 0;
-  player.stamina = FISH_STAMINA_MAX;
-  player.flapVelocity = 0;
-  player.flapQueued = false;
-
-  camX = constrain(player.x - width / 2, 0, WORLD_W - width);
-  camY = constrain(player.y - height / 2, 0, WORLD_H - height);
-}**/
 
 function respawnFromDragon() {
   if (isRespawning) return; // already dying — ignore extra triggers
@@ -3356,12 +3321,12 @@ function keyPressed() {
   const canJump =
     player.form === FORM_HUMAN && !playerInWater() && player.jumpCooldown <= 0;
 
-  if ((key === "w" || key === "W" || keyCode === 87) && canJump) {
+  if ((key === "w" || key === "W" || keyCode === 87 || key === " " || keyCode === 32) && canJump) {
     player.vy = -14;
     player.jumpCooldown = 30;
-  }
+}
 
-  if (keyCode === 87 && playerInWater()) {
+if ((keyCode === 87 || keyCode === 32) && playerInWater()) {
     player.flapQueued = true;
-  }
+}
 }
