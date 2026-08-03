@@ -163,7 +163,7 @@ const DRAGON_SLEEPING_SPRITE = {
   frameHeight: 0,
   numFrames: 6,
   animSpeed: 15,
-  scale: 0.4,
+  scale: 0.33,
 };
 
 let dragonSheet;
@@ -396,6 +396,7 @@ let seaweedImg;
 let sandImg;
 let sandrockImg;
 let rockImg;
+let rock2Img;
 let bgRockImg;
 let spike1Img;
 let spike2Img;
@@ -525,6 +526,7 @@ const LEVELS = {
       {
         key: "fish",
         json: "fishArea2",
+        bg: "fishareaBG2",
         anchorRightOf: "bird",
         shiftTiles: -32,
         anchorBelow: "bird",
@@ -679,6 +681,7 @@ function preload() {
   sandrockImg = loadImage("assets/images/sandrock.png");
 
   rockImg = loadImage("assets/images/rock.png");
+  rock2Img = loadImage("assets/images/Rock2.png");
   bgRockImg = loadImage("assets/images/bgrock.jpg");
   spike1Img = loadImage("assets/images/spike1.png");
   spike2Img = loadImage("assets/images/spike2.png");
@@ -689,6 +692,8 @@ function preload() {
   waterSurfaceImg = loadImage("assets/images/watersurface.png");
   fishareaBG = loadImage("assets/images/fishareaBG.png");
   fishareaOverlay = loadImage("assets/images/fishareaoverlay.png");
+  fishareaBG2 = loadImage("assets/images/2fisharea.png");
+
   cavebg = loadImage("assets/images/cavebg.png"); //bird area background level 1
   cavebg2 = loadImage("assets/images/2birdarea.png"); //bird area background level 2 
   birdSheet = loadImage("assets/images/bird.png");
@@ -743,7 +748,7 @@ function preload() {
     endbg,
     cavebg,
     cavebg2,
-    //fishareaBG2,
+    fishareaBG2,
     fishareaOverlay,
     //fishareaOverlay2,
 
@@ -1116,6 +1121,13 @@ checkBatCollision();
   animateCharacter();
   drawPlayer();
   drawDragon();
+  if (dragon) {
+  push();
+  fill(255, 0, 255);
+  noStroke();
+  ellipse(dragon.x, dragon.y, 8, 8);
+  pop();
+}
   drawBats();
 
   if (currentScreen === LEVEL_THREE && typeof drawLevel3BossFightWorld === "function") {
@@ -1162,33 +1174,6 @@ function drawDragonDebugHitbox() {
   stroke(0, 255, 0);
   strokeWeight(4);
   point(hitbox.x, hitbox.y);
-
-  if (dragonTriggerRunePos) {
-    const halfW = dragon.w / 2;
-    const halfH = dragon.h / 2;
-    const insideX =
-      dragonTriggerRunePos.x > hitbox.x - halfW &&
-      dragonTriggerRunePos.x < hitbox.x + halfW;
-    const insideY =
-      dragonTriggerRunePos.y > hitbox.y - halfH &&
-      dragonTriggerRunePos.y < hitbox.y + halfH;
-    const isInside = insideX && insideY;
-
-    noFill();
-    stroke(isInside ? color(255, 0, 0) : color(255, 255, 0));
-    strokeWeight(2);
-    ellipse(dragonTriggerRunePos.x, dragonTriggerRunePos.y, 16, 16);
-
-    noStroke();
-    fill(255);
-    textAlign(CENTER, BOTTOM);
-    textSize(11);
-    text(
-      isInside ? "RUNE: INSIDE HITBOX" : "RUNE: outside hitbox",
-      dragonTriggerRunePos.x,
-      dragonTriggerRunePos.y - 12,
-    );
-  }
 
   pop();
 }
@@ -1259,6 +1244,8 @@ function drawEndScreen() {
 }
 
 function drawKeyHUD() {
+  if (currentScreen === LEVEL_THREE) return;
+
   const padding = 14;
   const boxW = 110;
   const boxH = 34;
@@ -2527,6 +2514,7 @@ function respawnFromDragon() {
 }
  
 function drawDragon() {
+  
   if (!dragon) return;
 
   push();
@@ -2541,8 +2529,8 @@ function drawDragon() {
     }
 
     const sx = dragonSleepFrame * DRAGON_SLEEPING_SPRITE.frameWidth;
-    const dw = DRAGON_SLEEPING_SPRITE.frameWidth * DRAGON_SPRITE.scale;
-    const dh = DRAGON_SLEEPING_SPRITE.frameHeight * DRAGON_SPRITE.scale;
+    const dw = DRAGON_SLEEPING_SPRITE.frameWidth * DRAGON_SLEEPING_SPRITE.scale;  // FIXED
+const dh = DRAGON_SLEEPING_SPRITE.frameHeight * DRAGON_SLEEPING_SPRITE.scale;
 
     if (dragonSleepingSheet) {
       image(dragonSleepingSheet, dragon.x, dragon.y, dw, dh,
@@ -2912,10 +2900,14 @@ function drawTiles(area) {
         (area.key === "bird" || area.key === "start" || area.key === "end") &&
         layer.name === "rock"
       ) {
-        rockImg
-          ? image(rockImg, x, y, TILE_SIZE, TILE_SIZE)
-          : (fill(tileColor(layer.name, t.id)),
-            rect(x, y, TILE_SIZE, TILE_SIZE));
+        if (currentScreen === LEVEL_TWO && area.key === "bird" && rock2Img) {
+          image(rock2Img, x, y, TILE_SIZE, TILE_SIZE);
+        } else if (rockImg) {
+          image(rockImg, x, y, TILE_SIZE, TILE_SIZE);
+        } else {
+          fill(tileColor(layer.name, t.id));
+          rect(x, y, TILE_SIZE, TILE_SIZE);
+        }
       } else if (layer.name === "background rock") {
         bgRockImg
           ? image(bgRockImg, x, y, TILE_SIZE, TILE_SIZE)
@@ -2949,6 +2941,34 @@ function drawTiles(area) {
           ? image(waterSurfaceImg, x, y, TILE_SIZE, TILE_SIZE)
           : (fill(tileColor(layer.name, t.id)),
             rect(x, y, TILE_SIZE, TILE_SIZE));
+      } else if (currentScreen === LEVEL_THREE && area.key === "fish" && layer.name === "spikes") {
+        const spikeImages = [spike1Img, spike2Img, spike3Img, spike4Img];
+        const rockAbove = rockPositions.has(`${t.x},${t.y - 1}`);
+        const rockBelow = rockPositions.has(`${t.x},${t.y + 1}`);
+        const rockLeft = rockPositions.has(`${t.x - 1},${t.y}`);
+        const rockRight = rockPositions.has(`${t.x + 1},${t.y}`);
+        const tileSeed = (t.x * 37 + t.y * 19 + Math.round(area.bounds.x / TILE_SIZE)) % spikeImages.length;
+        const spikeImg = spikeImages[tileSeed];
+
+        let rotation = 0;
+        if (rockAbove) {
+          rotation = PI;
+        } else if (rockLeft) {
+          rotation = HALF_PI;
+        } else if (rockRight) {
+          rotation = -HALF_PI;
+        }
+
+        if (spikeImg) {
+          translate(x + TILE_SIZE / 2, y + TILE_SIZE / 2);
+          rotate(rotation);
+          imageMode(CENTER);
+          image(spikeImg, 0, 0, TILE_SIZE, TILE_SIZE);
+          imageMode(CORNER);
+        } else {
+          fill(tileColor(layer.name, t.id));
+          rect(x, y, TILE_SIZE, TILE_SIZE);
+        }
       } else if (area.key === "bird" && layer.name === "spikes") {
         const leftNeighbor = spikePositions.has(`${t.x - 1},${t.y}`);
         const rightNeighbor = spikePositions.has(`${t.x + 1},${t.y}`);

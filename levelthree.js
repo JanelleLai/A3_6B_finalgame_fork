@@ -6,7 +6,7 @@
 //   - Charge misses, hits a wall -> boss takes 100 damage, stuns
 // Repeats until boss hp <= 0 (win) or player runs out of hearts
 // (stage restarts).
-//
+
 // PHASE 2 (boss hp <= 500): player is locked into bird form and
 // throws rocks picked up from pedestals at the boss (100 dmg/rock,
 // auto-aimed). The charge/telegraph/stun cycle keeps running
@@ -62,18 +62,43 @@ let thrownRocks = []; // active in-flight projectiles
 let level3BossPath = [];
 let level3BossPathIndex = 0;
 let level3BossPathRecalcTimer = 0;
+let level3BossDefeated = false;
+
+// Reads the "dragon spawn" layer directly from the given area's JSON and
+// returns its world-space centroid, or null if the layer isn't found.
+function getLevel3BossSpawnPoint(arena) {
+  if (!arena || !arena.json || !arena.json.layers) return null;
+
+  const layer = arena.json.layers.find((l) => l.name === "dragon spawn");
+  if (!layer || !layer.tiles.length) return null;
+
+  let sx = 0, sy = 0;
+  for (const t of layer.tiles) {
+    sx += t.x * TILE_SIZE + TILE_SIZE / 2 + arena.bounds.x;
+    sy += t.y * TILE_SIZE + TILE_SIZE / 2 + arena.bounds.y;
+  }
+  return {
+    x: sx / layer.tiles.length,
+    y: sy / layer.tiles.length,
+  };
+}
 
 // ------------------------------------------------------------
 // initLevel3BossFight() — called once from loadLevel(LEVEL_THREE)
 // ------------------------------------------------------------
+
 function initLevel3BossFight() {
+  deactivateLevel3Barrier();
+
   const arena = findArea(levelAreas, "fish");
-  const arenaX = arena ? arena.bounds.x + arena.bounds.w / 2 : WORLD_W / 2;
-  const arenaY = arena ? arena.bounds.y + arena.bounds.h / 2 : WORLD_H / 2;
+  const bossSpawn = getLevel3BossSpawnPoint(arena);
+  const arenaX = bossSpawn ? bossSpawn.x : (arena ? arena.bounds.x + arena.bounds.w / 2 : WORLD_W / 2);
+  const arenaY = bossSpawn ? bossSpawn.y : (arena ? arena.bounds.y + arena.bounds.h / 2 : WORLD_H / 2);
   const triggerX = arena
     ? arena.bounds.x + arena.bounds.w * LEVEL3_BOSS_CONFIG.triggerFraction
     : arenaX;
 
+    
   level3Boss = {
     x: arenaX,
     y: arenaY,
@@ -94,12 +119,13 @@ function initLevel3BossFight() {
   // Gate at the tunnel mouth — solid once the boss wakes, so the player
   // can't retreat out of the fight and the boss can't wander into the tunnel.
   const barrierThickness = TILE_SIZE * 0.5;
-  level3Barrier = {
-    x: triggerX - barrierThickness / 2,
-    y: arena ? arena.bounds.y : 0,
-    w: barrierThickness,
-    h: arena ? arena.bounds.h : WORLD_H,
-  };
+const barrierOffsetX = 1.5 * TILE_SIZE; // ADDED — shift barrier away from the entrance
+level3Barrier = {
+  x: triggerX - barrierThickness / 2 + barrierOffsetX,   // CHANGED
+  y: arena ? arena.bounds.y : 0,
+  w: barrierThickness,
+  h: arena ? arena.bounds.h : WORLD_H,
+};
   level3BarrierActive = false;
 
   // Phase 2 setup — pedestal positions relative to the arena bounds.
@@ -111,11 +137,13 @@ function initLevel3BossFight() {
   player.health = player.maxHealth;
   player.invincible = false;
   player.invincibleTimer = 0;
+  level3BossDefeated = false;
 
-level3CamZoomTarget = 0.8; // CHANGED from 0.6 — stays normal while player is still in fish spawn
+  level3CamZoomTarget = 0.8;
 
-level3FishSpawnBounds = getFishSpawnBounds();
+  level3FishSpawnBounds = getFishSpawnBounds();
 }
+
 
 function getFishSpawnBounds() {
   const arena = findArea(levelAreas, "fish");
@@ -165,6 +193,15 @@ function deactivateLevel3Barrier() {
   const idx = solidTiles.indexOf(level3Barrier);
   if (idx !== -1) solidTiles.splice(idx, 1);
   level3BarrierActive = false;
+}
+
+function updateLevel3BarrierGate() {
+  if (!level3Barrier || level3BarrierActive) return;
+
+  const barrierRightEdge = level3Barrier.x + level3Barrier.w;
+  if (player.x >= barrierRightEdge) {
+    activateLevel3Barrier();
+  }
 }
 
 // ------------------------------------------------------------
@@ -238,7 +275,8 @@ function damageLevel3Boss(amount) {
 
   if (level3Boss.hp <= 0) {
     stopAllGameSounds();
-    gameState = STATE_WIN;
+    level3BossDefeated = true;
+    level3Boss = null;
     return;
   }
 
@@ -337,9 +375,10 @@ function updateLevel3BossFight() {
     return;
   level3CamZoomTarget = playerInFishSpawn() ? 0.8 : 0.6; // ADDED to zoom out for the boss arena, but not while the player is still in the fish spawn
 
+  updateLevel3BarrierGate();
+
   if (playerInFishSpawn()) {
     level3Boss.state = BOSS3_STATE.DORMANT;
-    deactivateLevel3Barrier();
     return; // sleeping, no collision/telegraph/charge logic runs
   }
 
@@ -353,11 +392,9 @@ function updateLevel3BossFight() {
   }
 
   if (level3Boss.state === BOSS3_STATE.DORMANT) {
-  level3Boss.state = BOSS3_STATE.AIMING;
-  level3Boss.timer = LEVEL3_BOSS_CONFIG.telegraphFrames;
-  activateLevel3Barrier();
-  return;
-
+    level3Boss.state = BOSS3_STATE.AIMING;
+    level3Boss.timer = LEVEL3_BOSS_CONFIG.telegraphFrames;
+    return;
   }
 
   if (level3Boss.state === BOSS3_STATE.AIMING) {
@@ -480,44 +517,18 @@ function playerTakeDragonHit() {
 }
 
 function restartLevel3Stage() {
-  // Reset the player's position FIRST — the boss-state/barrier decision
-  // below reads player.x, so it must see the post-respawn position, not
-  // wherever the player died.
-  player.x = playerStart.x;
-  player.y = playerStart.y;
+  initLevel3BossFight(); // full reset: boss HP, phase, barrier, pedestals, rocks
+
+  // Override player position — always the last fish-area checkpoint reached,
+  // not the level's original start.
+  const spawn = lastCheckpoint || playerStart;
+  player.x = spawn.x;
+  player.y = spawn.y;
+  player.form = FORM_FISH;
   player.vx = 0;
   player.vy = 0;
   camX = constrain(player.x - width / 2, 0, WORLD_W - width);
   camY = constrain(player.y - height / 2, 0, WORLD_H - height);
-
-  player.health = player.maxHealth;
-  player.invincible = false;
-  player.invincibleTimer = 0;
-
-  if (level3Boss) {
-  level3Boss.vx = 0;
-  level3Boss.vy = 0;
-
-  if (level3Phase === LEVEL3_PHASE.FLY) {          // ADDED branch
-    level3Boss.state = BOSS3_STATE.CHASING;
-    level3BossPath = [];
-    level3BossPathIndex = 0;
-    level3BossPathRecalcTimer = DRAGON_PATH_RECALC_INTERVAL; // force recalc next frame
-  } else {
-    level3Boss.state =
-      player.x >= level3Boss.triggerX ? BOSS3_STATE.AIMING : BOSS3_STATE.DORMANT;
-    level3Boss.timer = LEVEL3_BOSS_CONFIG.telegraphFrames;
-
-    if (level3Boss.state === BOSS3_STATE.DORMANT) {
-      deactivateLevel3Barrier();
-    } else {
-      activateLevel3Barrier();
-    }
-  }
-}
-
-  // Note: level3Phase is intentionally NOT reset here — once the boss
-  // drops to phase 2, the fight stays aerial even after a player death.
 }
 
 // ------------------------------------------------------------
