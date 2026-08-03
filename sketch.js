@@ -163,7 +163,7 @@ const DRAGON_SLEEPING_SPRITE = {
   frameHeight: 0,
   numFrames: 6,
   animSpeed: 15,
-  scale: 0.33,
+  scale: 0.29,
 };
 
 let dragonSheet;
@@ -1578,15 +1578,15 @@ function enforceLocationForm() {
   // Level 3 phase 2: player is locked into bird form for the rest of the
   // fight, regardless of standing over water tiles in the arena — this
   // overrides the normal location-based form rules below.
-  if (
-    currentScreen === LEVEL_THREE &&
-    typeof level3Phase !== "undefined" &&
-    level3Phase === LEVEL3_PHASE.FLY
-  ) {
-    if (player.form !== FORM_BIRD) player.form = FORM_BIRD;
-    return;
-  }
-
+ if (
+  currentScreen === LEVEL_THREE &&
+  typeof level3Phase !== "undefined" &&
+  level3Phase === LEVEL3_PHASE.FLY &&
+  level3Boss   // ADDED — only lock to bird form while the fight is actually ongoing
+) {
+  if (player.form !== FORM_BIRD) player.form = FORM_BIRD;
+  return;
+}
   if (playerInWater()) {
     if (player.form !== FORM_FISH) player.form = FORM_FISH;
     return;
@@ -2430,6 +2430,9 @@ function checkDragonCollision() {
   const closestX = constrain(player.x, dragon.x - halfW, dragon.x + halfW);
   const closestY = constrain(player.y, dragon.y - halfH, dragon.y + halfH);
 
+  if (dragon.state === DRAGON_STATE.CHASING) {
+  console.log("dragon-player dist:", dist(player.x, player.y, closestX, closestY), "player.r:", player.r, "invincible:", player.invincible, "invincibleTimer:", player.invincibleTimer);
+}
   if (dist(player.x, player.y, closestX, closestY) >= player.r) return;
 
   if (dragon.state === DRAGON_STATE.SLEEPING) {
@@ -3396,14 +3399,15 @@ if (currentScreen === LEVEL_THREE && level3EpilogueState === LEVEL3_EPILOGUE_STA
 
 if (currentScreen === LEVEL_THREE && level3EpilogueState === LEVEL3_EPILOGUE_STATE.CHOICE) {
   if (key === "y" || key === "Y") {
-    level3EpilogueState = LEVEL3_EPILOGUE_STATE.MIMIC;
-    level3MimicLastPlayerX = player.x;
-    level3MimicLastPlayerY = player.y;
-    level3EpilogueLineTimer = 150; // ~2.5s at 60fps
-    portalUnlocked = true;
-    return;
-  }
+  level3EpilogueState = LEVEL3_EPILOGUE_STATE.MIMIC;
+  level3MimicSide = level3EndDragon.x > player.x ? "right" : "left";  // CHANGED
+  level3MimicFrozen = false;                                          // ADDED
+  level3EpilogueLineTimer = 150;
+  portalUnlocked = true;
+  return;
+}
   if (key === "n" || key === "N") {
+    level3ChaseWindupTimer = 0;
     level3EpilogueState = LEVEL3_EPILOGUE_STATE.CHASING;
     return;
   }

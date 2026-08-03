@@ -88,10 +88,22 @@ let level3MimicLastPlayerX = 0;
 let level3MimicLastPlayerY = 0;
 
 const LEVEL3_EPILOGUE_CONFIG = {
-  approachDistance: 2.5 * TILE_SIZE, // how close the player must walk to start dialogue
-  chaseSpeed: 8,                     // faster than HUMAN_SPEED (7) — the box is inescapable
+  approachDistance: 2.5 * TILE_SIZE,
+  chaseSpeed: 6,          // CHANGED from 8 — was closing the gap almost instantly
   catchDistance: TILE_SIZE * 0.9,
+  chaseWindupFrames: 75,  // ADDED — ~1.25s pause before the dragon actually moves
 };
+
+let level3ChaseWindupTimer = 0; // ADDED
+
+const LEVEL3_MIMIC_CONFIG = {
+  followDistance: 3 * TILE_SIZE,
+  resumeDistance: 5 * TILE_SIZE,
+  followSpeed: HUMAN_SPEED, // CHANGED — matches your exact move speed instead of easing
+};
+
+let level3MimicSide = "left";   // which side of the PLAYER the dragon currently occupies
+let level3MimicFrozen = false;
 
 // Reads the "dragon spawn" layer directly from the given area's JSON and
 // returns its world-space centroid, or null if the layer isn't found.
@@ -117,6 +129,12 @@ function getLevel3BossSpawnPoint(arena) {
 // ------------------------------------------------------------
 
 function initLevel3BossFight() {
+  level3EpilogueState = LEVEL3_EPILOGUE_STATE.NONE;  // ADDED
+level3EndDragon = null;                              // ADDED
+level3EpilogueLineTimer = 0;                          // ADDED
+level3MimicFrozen = false;                            // ADDED
+
+
   deactivateLevel3Barrier();
 
   const arena = findArea(levelAreas, "fish");
@@ -828,7 +846,13 @@ function updateLevel3Epilogue() {
   }
 
   if (level3EpilogueState === LEVEL3_EPILOGUE_STATE.CHASING) {
-    const dx = player.x - level3EndDragon.x;
+  if (level3ChaseWindupTimer < LEVEL3_EPILOGUE_CONFIG.chaseWindupFrames) {   // ADDED block
+    level3ChaseWindupTimer++;
+    level3EndDragon.facing = player.x < level3EndDragon.x ? "left" : "right";
+    return;
+  }
+
+  const dx = player.x - level3EndDragon.x;
     const dy = player.y - level3EndDragon.y;
     const d = Math.sqrt(dx * dx + dy * dy) || 1;
 
@@ -846,16 +870,41 @@ function updateLevel3Epilogue() {
   }
 
   if (level3EpilogueState === LEVEL3_EPILOGUE_STATE.MIMIC) {
-    const dx = player.x - level3MimicLastPlayerX;
-    const dy = player.y - level3MimicLastPlayerY;
-    level3EndDragon.x += dx;
-    level3EndDragon.y += dy;
-    if (dx !== 0) level3EndDragon.facing = dx < 0 ? "left" : "right";
-
-    level3MimicLastPlayerX = player.x;
-    level3MimicLastPlayerY = player.y;
+  if (level3MimicFrozen) {
+  const gap = level3MimicSide === "right"
+    ? (level3EndDragon.x - player.x)   // CHANGED — was (player.x - level3EndDragon.x)
+    : (player.x - level3EndDragon.x);  // CHANGED — was (level3EndDragon.x - player.x)
+  if (gap > LEVEL3_MIMIC_CONFIG.resumeDistance) {
+    level3MimicFrozen = false;
+  } else {
+    level3EndDragon.facing = player.x < level3EndDragon.x ? "left" : "right";
     return;
   }
+}
+
+  // Crossing check: has the player walked past the dragon onto its other side?
+  const dragonIsRightOfPlayer = level3EndDragon.x > player.x;
+  if (level3MimicSide === "right" && !dragonIsRightOfPlayer) {
+    level3MimicSide = "left";
+    level3MimicFrozen = true;
+    return;
+  }
+  if (level3MimicSide === "left" && dragonIsRightOfPlayer) {
+    level3MimicSide = "right";
+    level3MimicFrozen = true;
+    return;
+  }
+
+  // Normal following — step at a constant speed instead of easing in.
+const targetX = player.x + (level3MimicSide === "right" ? LEVEL3_MIMIC_CONFIG.followDistance : -LEVEL3_MIMIC_CONFIG.followDistance);
+const dx = targetX - level3EndDragon.x;
+if (Math.abs(dx) > LEVEL3_MIMIC_CONFIG.followSpeed) {
+  level3EndDragon.x += Math.sign(dx) * LEVEL3_MIMIC_CONFIG.followSpeed;   // CHANGED
+} else {
+  level3EndDragon.x = targetX;   // CHANGED — snaps the last bit instead of crawling in
+}
+level3EndDragon.facing = level3EndDragon.x > player.x ? "left" : "right";
+}
 }
 
 function drawLevel3EndDragon() {
@@ -864,12 +913,9 @@ function drawLevel3EndDragon() {
 
   push();
   imageMode(CENTER);
-
-  dragonAnimTimer++;
-  if (dragonAnimTimer >= DRAGON_SPRITE.animSpeed) {
-    dragonAnimTimer = 0;
-    dragonAnimFrame = (dragonAnimFrame + 1) % DRAGON_SPRITE.numFrames;
-  }
+  
+ let level3EndDragonAnimTimer = 0;   // ADDED
+let level3EndDragonAnimFrame = 0;   // ADDED
 
   const isChasing = level3EpilogueState === LEVEL3_EPILOGUE_STATE.CHASING;
   const row = level3EndDragon.facing === "left"
