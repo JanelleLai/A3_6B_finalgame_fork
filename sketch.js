@@ -1111,6 +1111,8 @@ function drawLevelScreen() {
         
         if (currentScreen === LEVEL_THREE) {
   updateLevel3BossFight();
+    updateLevel3Epilogue();   
+
 } else {
   checkDragonCollision();
   updateDragon();
@@ -1125,14 +1127,9 @@ checkBatCollision();
   animateCharacter();
   drawPlayer();
   drawDragon();
-  if (dragon) {
-  push();
-  fill(255, 0, 255);
-  noStroke();
-  ellipse(dragon.x, dragon.y, 8, 8);
-  pop();
-}
+  
   drawBats();
+drawLevel3EndDragon();
 
   if (currentScreen === LEVEL_THREE && typeof drawLevel3BossFightWorld === "function") {
     drawLevel3BossFightWorld();
@@ -1151,11 +1148,17 @@ checkBatCollision();
   if (currentScreen === LEVEL_THREE && typeof drawLevel3HUD === "function") {
     drawLevel3HUD();
   }
+  if (currentScreen === LEVEL_THREE && typeof drawLevel3DialogueUI === "function") {
+  drawLevel3DialogueUI();   // ADDED — screen-space, after pop()
+}
   drawInstructions();
   if (gameState === STATE_WIN && level1MessageImg) {
     stopAllGameSounds();
     drawEndScreen();
   }
+  if (gameState === STATE_OVER && currentScreen === LEVEL_THREE) {   // ADDED
+  drawLevel3BadEndScreen();
+}
 }
 
 
@@ -3040,10 +3043,9 @@ function drawTiles(area) {
         const isOpen = keyCollected >= GATE_LAYERS[layer.name];
         if (!isOpen) image(barrierImg, x, y, TILE_SIZE, TILE_SIZE);
       } else if (layer.name === PORTAL_LAYER) {
-        const pImg =
-          keyCollected >= requiredPortalKeys
-            ? portalOpenImg
-            : portalClosedImg;
+  const isOpen = currentScreen === LEVEL_THREE ? portalUnlocked : keyCollected >= REQUIRED_PORTAL_KEYS; // CHANGED
+  const pImg = isOpen ? portalOpenImg : portalClosedImg;
+  
         if (pImg) {
           const tiles = layer.tiles;
           const minX = Math.min(...tiles.map((tt) => tt.x));
@@ -3179,6 +3181,14 @@ function applyBounce() {
 // handleInput() — Updates player position and tracking direction
 // ------------------------------------------------------------
 function handleInput() {
+  if (
+    currentScreen === LEVEL_THREE &&
+    (level3EpilogueState === LEVEL3_EPILOGUE_STATE.DIALOGUE ||
+      level3EpilogueState === LEVEL3_EPILOGUE_STATE.CHOICE)
+  ) {
+    player.isMoving = false;
+    return;
+  }
   player.isMoving = false;
 
   // --- Horizontal Movement ---
@@ -3374,6 +3384,32 @@ function keyPressed() {
     goToScreen(LEVEL_THREE);
     return;
 }
+
+//yes and no in epilogue dialogue
+if (currentScreen === LEVEL_THREE && level3EpilogueState === LEVEL3_EPILOGUE_STATE.DIALOGUE && key === "Enter") {
+  level3DialogueIndex++;
+  if (level3DialogueIndex >= level3DialogueLines.length) {
+    level3EpilogueState = LEVEL3_EPILOGUE_STATE.CHOICE;
+  }
+  return;
+}
+
+if (currentScreen === LEVEL_THREE && level3EpilogueState === LEVEL3_EPILOGUE_STATE.CHOICE) {
+  if (key === "y" || key === "Y") {
+    level3EpilogueState = LEVEL3_EPILOGUE_STATE.MIMIC;
+    level3MimicLastPlayerX = player.x;
+    level3MimicLastPlayerY = player.y;
+    level3EpilogueLineTimer = 150; // ~2.5s at 60fps
+    portalUnlocked = true;
+    return;
+  }
+  if (key === "n" || key === "N") {
+    level3EpilogueState = LEVEL3_EPILOGUE_STATE.CHASING;
+    return;
+  }
+  return;
+}
+
   // Level 3 phase 2 — Space throws the currently-carried rock at the
   // boss (auto-aimed). No-op outside phase 2 or without a rock carried;
   // see throwLevel3Rock() in levelthree_boss.js.

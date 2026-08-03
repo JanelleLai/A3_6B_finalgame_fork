@@ -64,6 +64,35 @@ let level3BossPathIndex = 0;
 let level3BossPathRecalcTimer = 0;
 let level3BossDefeated = false;
 
+// ------------------------------------------------------------
+// EPILOGUE — plays out in the "end" area once the boss is
+// defeated. Not a fight: dialogue, then a Y/N choice branching
+// into a chase-death bad end or a portal-opening good end.
+// ------------------------------------------------------------
+const LEVEL3_EPILOGUE_STATE = {
+  NONE: "none",
+  IDLE: "idle",         // dragon waiting, player free to approach
+  DIALOGUE: "dialogue", // lines advancing on Enter
+  CHOICE: "choice",     // waiting for Y (offer rune) / N (attack)
+  CHASING: "chasing",   // bad end — dragon hunts the player
+  DEAD: "dead",         // bad end reached
+  MIMIC: "mimic",       // good end — dragon copies player movement
+};
+
+let level3EpilogueState = LEVEL3_EPILOGUE_STATE.NONE;
+let level3EndDragon = null;       // {x, y, w, h, facing}
+let level3DialogueLines = [];
+let level3DialogueIndex = 0;
+let level3EpilogueLineTimer = 0;  // transient "This will work." line after choosing Y
+let level3MimicLastPlayerX = 0;
+let level3MimicLastPlayerY = 0;
+
+const LEVEL3_EPILOGUE_CONFIG = {
+  approachDistance: 2.5 * TILE_SIZE, // how close the player must walk to start dialogue
+  chaseSpeed: 8,                     // faster than HUMAN_SPEED (7) — the box is inescapable
+  catchDistance: TILE_SIZE * 0.9,
+};
+
 // Reads the "dragon spawn" layer directly from the given area's JSON and
 // returns its world-space centroid, or null if the layer isn't found.
 function getLevel3BossSpawnPoint(arena) {
@@ -733,19 +762,193 @@ function updateLevel3BossChase() {
   resolveLevel3BossSolidCollisions();
 }
 
-// ADDED
 function moveToLevel3EndArea() {
   const end = findArea(levelAreas, "end");
   if (!end) return;
 
   deactivateLevel3Barrier();
+  initLevel3Epilogue();
+}
 
-  player.x = end.bounds.x + 2 * TILE_SIZE; // just inside the entrance — adjust to taste
-  player.y = end.bounds.y + end.bounds.h / 2;
+function initLevel3Epilogue() {
+  const end = findArea(levelAreas, "end");
+  if (!end) return;
+
+  const groundY = end.bounds.y + 26 * TILE_SIZE; // top of the grass row (confirmed from the JSON)
+  const halfSpan = (DRAGON_CONFIG.tileSpan * TILE_SIZE) / 2;
+
+  // Player: on solid ground, between the dragon and the door.
+  player.x = end.bounds.x + 12 * TILE_SIZE;
+  player.y = end.bounds.y + 24 * TILE_SIZE; // a couple tiles above the floor — gravity settles it
   player.vx = 0;
   player.vy = 0;
-  player.form = FORM_HUMAN; // end area is solid ground (grass/bark/ground), not water/air
+  player.form = FORM_HUMAN;
 
   camX = constrain(player.x - width / 2, 0, WORLD_W - width);
   camY = constrain(player.y - height / 2, 0, WORLD_H - height);
+  level3CamZoomTarget = 0.8; // back to normal — no more boss-fight zoom
+
+  // Dragon: to the player's left, standing on the same ground.
+  level3EndDragon = {
+    x: end.bounds.x + 8 * TILE_SIZE,
+    y: groundY - halfSpan,
+    w: DRAGON_CONFIG.tileSpan * TILE_SIZE,
+    h: DRAGON_CONFIG.tileSpan * TILE_SIZE,
+    facing: "right",
+  };
+
+  level3EpilogueState = LEVEL3_EPILOGUE_STATE.IDLE;
+  level3DialogueIndex = 0;
+  level3DialogueLines = [
+    { speaker: "Dragon", text: "You can't defeat me. I control this world." },
+    { speaker: "You", text: "You've done nothing but make my journey harder." },
+    { speaker: "Dragon", text: "But you've been getting better at navigating it." },
+    { speaker: "You", text: "Whatever — just tell me how to open this portal!" },
+    { speaker: "Dragon", text: "I need something from you first." },
+  ];
+
+  portalUnlocked = false; // stays shut until the rune is offered
+}
+
+function updateLevel3Epilogue() {
+  if (level3EpilogueState === LEVEL3_EPILOGUE_STATE.NONE || !level3EndDragon) return;
+
+  if (level3EpilogueState === LEVEL3_EPILOGUE_STATE.IDLE) {
+    level3EndDragon.facing = player.x < level3EndDragon.x ? "left" : "right";
+    if (dist(player.x, player.y, level3EndDragon.x, level3EndDragon.y) < LEVEL3_EPILOGUE_CONFIG.approachDistance) {
+      level3EpilogueState = LEVEL3_EPILOGUE_STATE.DIALOGUE;
+      level3DialogueIndex = 0;
+    }
+    return;
+  }
+
+  if (level3EpilogueState === LEVEL3_EPILOGUE_STATE.DIALOGUE) {
+    level3EndDragon.facing = player.x < level3EndDragon.x ? "left" : "right";
+    return; // advance handled in keyPressed()
+  }
+
+  if (level3EpilogueState === LEVEL3_EPILOGUE_STATE.CHASING) {
+    const dx = player.x - level3EndDragon.x;
+    const dy = player.y - level3EndDragon.y;
+    const d = Math.sqrt(dx * dx + dy * dy) || 1;
+
+    level3EndDragon.x += (dx / d) * LEVEL3_EPILOGUE_CONFIG.chaseSpeed;
+    level3EndDragon.y += (dy / d) * LEVEL3_EPILOGUE_CONFIG.chaseSpeed;
+    level3EndDragon.facing = dx < 0 ? "left" : "right";
+
+    if (d < LEVEL3_EPILOGUE_CONFIG.catchDistance) {
+      level3EpilogueState = LEVEL3_EPILOGUE_STATE.DEAD;
+      if (diesound) diesound.play();
+      stopAllGameSounds();
+      gameState = STATE_OVER;
+    }
+    return;
+  }
+
+  if (level3EpilogueState === LEVEL3_EPILOGUE_STATE.MIMIC) {
+    const dx = player.x - level3MimicLastPlayerX;
+    const dy = player.y - level3MimicLastPlayerY;
+    level3EndDragon.x += dx;
+    level3EndDragon.y += dy;
+    if (dx !== 0) level3EndDragon.facing = dx < 0 ? "left" : "right";
+
+    level3MimicLastPlayerX = player.x;
+    level3MimicLastPlayerY = player.y;
+    return;
+  }
+}
+
+function drawLevel3EndDragon() {
+  if (!level3EndDragon || level3EpilogueState === LEVEL3_EPILOGUE_STATE.NONE) return;
+  if (level3EpilogueState === LEVEL3_EPILOGUE_STATE.DEAD) return;
+
+  push();
+  imageMode(CENTER);
+
+  dragonAnimTimer++;
+  if (dragonAnimTimer >= DRAGON_SPRITE.animSpeed) {
+    dragonAnimTimer = 0;
+    dragonAnimFrame = (dragonAnimFrame + 1) % DRAGON_SPRITE.numFrames;
+  }
+
+  const isChasing = level3EpilogueState === LEVEL3_EPILOGUE_STATE.CHASING;
+  const row = level3EndDragon.facing === "left"
+    ? (isChasing ? DRAGON_SPRITE.rows.flyingLeft : DRAGON_SPRITE.rows.idleLeft)
+    : (isChasing ? DRAGON_SPRITE.rows.flyingRight : DRAGON_SPRITE.rows.idleRight);
+
+  const sx = dragonAnimFrame * DRAGON_SPRITE.frameWidth;
+  const sy = row * DRAGON_SPRITE.frameHeight;
+  const dw = DRAGON_SPRITE.frameWidth * DRAGON_SPRITE.scale;
+  const dh = DRAGON_SPRITE.frameHeight * DRAGON_SPRITE.scale;
+
+  if (dragonSheet) {
+    image(dragonSheet, level3EndDragon.x, level3EndDragon.y, dw, dh,
+          sx, sy, DRAGON_SPRITE.frameWidth, DRAGON_SPRITE.frameHeight);
+  }
+  pop();
+}
+
+function drawLevel3DialogueUI() {
+  const showing =
+    level3EpilogueState === LEVEL3_EPILOGUE_STATE.DIALOGUE ||
+    level3EpilogueState === LEVEL3_EPILOGUE_STATE.CHOICE ||
+    level3EpilogueLineTimer > 0;
+  if (!showing) return;
+
+  const boxH = height * 0.32;
+  push();
+  noStroke();
+  fill(0, 0, 0, 200);
+  rect(0, height - boxH, width, boxH);
+
+  textFont("monospace");
+  textAlign(LEFT, TOP);
+
+  if (level3EpilogueState === LEVEL3_EPILOGUE_STATE.DIALOGUE) {
+    const line = level3DialogueLines[level3DialogueIndex];
+    fill(230, 200, 80);
+    textSize(14);
+    text(line.speaker, 24, height - boxH + 16);
+    fill(255);
+    textSize(16);
+    text(line.text, 24, height - boxH + 40, width - 48);
+    fill(200);
+    textSize(11);
+    textAlign(RIGHT, BOTTOM);
+    text("[Enter] Continue", width - 20, height - 12);
+  } else if (level3EpilogueState === LEVEL3_EPILOGUE_STATE.CHOICE) {
+    fill(230, 200, 80);
+    textSize(14);
+    text("Dragon", 24, height - boxH + 16);
+    fill(255);
+    textSize(16);
+    text("I need something from you first.", 24, height - boxH + 40, width - 48);
+    textSize(14);
+    text('[Y] Offer a rune        [N] "Just disappear!"', 24, height - boxH + 80);
+  } else if (level3EpilogueLineTimer > 0) {
+    fill(230, 200, 80);
+    textSize(14);
+    text("Dragon", 24, height - boxH + 16);
+    fill(255);
+    textSize(16);
+    text("This will work.", 24, height - boxH + 40);
+    level3EpilogueLineTimer--;
+  }
+  pop();
+}
+
+function drawLevel3BadEndScreen() {
+  push();
+  noStroke();
+  fill(0, 0, 0, 220);
+  rect(0, 0, width, height);
+  fill(200, 40, 40);
+  textFont("monospace");
+  textAlign(CENTER, CENTER);
+  textSize(28);
+  text("YOU WERE CAUGHT", width / 2, height / 2 - 20);
+  fill(255);
+  textSize(14);
+  text("The dragon was right — there was no escaping the box.", width / 2, height / 2 + 20);
+  pop();
 }
