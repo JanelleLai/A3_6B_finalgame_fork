@@ -436,6 +436,7 @@ let fishareasound;
 let humanBGsound;
 let birdBGsound;
 let batsound;
+let birdflapsound;
 
 // ------------------------------------------------------------
 // ADDED — TILE PHYSICS
