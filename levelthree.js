@@ -25,7 +25,7 @@ const BOSS3_STATE = {
 // ADDED — reuse chargeSpeed's neighbor; tune independently if it feels too fast/slow
 const LEVEL3_BOSS_CONFIG = {
   maxHealth: 1000,
-  wallDamage: 100,
+  wallDamage: 50,
   chargeSpeed: 6,
   chaseSpeed: 4,   // ADDED — FLY-phase pursuit speed
   telegraphFrames: 90,
@@ -280,9 +280,18 @@ function damageLevel3Boss(amount) {
     return;
   }
 
-  if (level3Phase === LEVEL3_PHASE.SWIM && level3Boss.hp <= 500) {
+  if (level3Phase === LEVEL3_PHASE.SWIM && level3Boss.hp <= 800) {
     enterLevel3FlyPhase();
   }
+
+   if (level3Boss.hp <= 600) {
+    stopAllGameSounds();
+    level3BossDefeated = true;
+    level3Boss = null;
+    moveToLevel3EndArea();   // ADDED
+    return;
+  }
+
 }
 
 function hasLineOfSightLevel3(x0, y0, x1, y1) {
@@ -340,14 +349,14 @@ function moveToLevel3BirdArena() {
   const cx = bird.bounds.x + bird.bounds.w / 2;
   const cy = bird.bounds.y + bird.bounds.h / 2;
 
-  player.x = cx - 2 * TILE_SIZE;
-  player.y = cy - 2 * TILE_SIZE;
+  player.x = cx;
+player.y = cy;                    // CHANGED — player now spawns at ground level
   player.vx = 0;
   player.vy = 0;
   player.form = FORM_BIRD;
 
   level3Boss.x = cx;
-  level3Boss.y = cy;
+level3Boss.y = cy - 2 * TILE_SIZE; // CHANGED — boss now spawns above,
   level3Boss.vx = 0;
   level3Boss.vy = 0;
   level3Boss.state = BOSS3_STATE.CHASING; // CHANGED from AIMING
@@ -724,3 +733,19 @@ function updateLevel3BossChase() {
   resolveLevel3BossSolidCollisions();
 }
 
+// ADDED
+function moveToLevel3EndArea() {
+  const end = findArea(levelAreas, "end");
+  if (!end) return;
+
+  deactivateLevel3Barrier();
+
+  player.x = end.bounds.x + 2 * TILE_SIZE; // just inside the entrance — adjust to taste
+  player.y = end.bounds.y + end.bounds.h / 2;
+  player.vx = 0;
+  player.vy = 0;
+  player.form = FORM_HUMAN; // end area is solid ground (grass/bark/ground), not water/air
+
+  camX = constrain(player.x - width / 2, 0, WORLD_W - width);
+  camY = constrain(player.y - height / 2, 0, WORLD_H - height);
+}

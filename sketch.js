@@ -430,6 +430,7 @@ let birdSheet; //bird sprite sheet
 //sound effects
 let diesound;
 let runesound;
+let portalOpeningSound;
 let walkingsound;
 let flappingsound;
 let fishareasound;
@@ -475,6 +476,7 @@ let keyMap = new Map(); // world "x,y" -> collected boolean
 let keyTotal = 0;
 let keyCollected = 0;
 let portalUnlocked = false;
+let portalOpeningPlayed = false;
 let whirlpoolTiles = []; // [{x,y,w,h}]
 let portalTiles = []; // [{x,y,w,h}] portal/door tiles
 let seaweedTiles = []; // [{x,y,w,h}] world-space rects — slows the fish, doesn't block it
@@ -671,6 +673,8 @@ function preload() {
   titleFrame1 = loadImage("assets/images/Title frame1.png");
   titleFrame2 = loadImage("assets/images/Title frame2.png");
 
+  controls = loadImage("assets/images/controls.png");
+
   grassImg = loadImage("assets/images/grass.png");
   groundImg = loadImage("assets/images/ground.png");
   grass2Img = loadImage("assets/images/grass2.png");
@@ -706,7 +710,7 @@ function preload() {
   portalOpenImg = loadImage("assets/images/portalopen.png");
   windImg = loadImage("assets/images/wind.png");
   portalImg = loadImage("assets/images/portalclosed.png");
-  bridgeImg = loadImage("assets/images/bridge.png");
+  bridgeImg = loadImage("assets/images/Bridge2.png");
   dragonSheet = loadImage("assets/images/dragonSheet.png");
   dragonSleepingSheet = loadImage("assets/images/dragonSleeping.png");
 
@@ -719,8 +723,10 @@ function preload() {
 
   diesound = loadSound("assets/sounds/die.mp3");
   runesound = loadSound("assets/sounds/rune.mp3");
+  portalOpeningSound = loadSound("assets/sounds/portalopening.mp3");
   walkingsound = loadSound("assets/sounds/walking.mp3");
-  flappingsound = loadSound("assets/sounds/flappingbird.mp3");
+  flappingsound = loadSound("assets/sounds/flappingbird.mp3"); //level1
+  birdflapsound = loadSound("assets/sounds/birdflap.mp3"); //level2
   fishareasound = loadSound("assets/sounds/fisharea.mp3");
   humanBGsound = loadSound("assets/sounds/HumanBG.mp3");
   birdBGsound = loadSound("assets/sounds/birdBG.mp3");
@@ -861,6 +867,7 @@ function loadLevel(levelId) {
   keyTotal = 0;
   keyCollected = 0;
   portalUnlocked = false;
+  portalOpeningPlayed = false;
   requiredPortalKeys = def.requiredKeys ?? REQUIRED_PORTAL_KEYS;
   whirlpoolTiles = [];
   portalTiles = [];
@@ -1018,24 +1025,20 @@ function shouldDrawArea(area) {
 }
 
 function drawInstructions() {
+  if (currentScreen !== LEVEL_ONE) return;
+
   const start = findArea(levelAreas, "start");
   const inStart = start && player.x < start.bounds.x + start.bounds.w;
-  if (!inStart) return;
+  if (!inStart || !controls) return;
+
+  const imgW = 240;
+  const imgH = (controls.height / controls.width) * imgW;
+  const x = 14;
+  const y = height - imgH - 14;
 
   push();
-  noStroke();
-  fill(0, 0, 0, 140);
-  rect(14, height - 110, 140, 95, 8);
-
-  fill(255);
-  textSize(12);
-  textFont("monospace");
-  textAlign(LEFT, TOP);
-  text("CONTROLS:", 24, height - 100);
-  fill(200);
-  text("A / D / S — move", 24, height - 82);
-  text("W or space — jump", 24, height - 66);
-  text("", 24, height - 50);
+  imageMode(CORNER);
+  image(controls, x, y, imgW, imgH);
   pop();
 }
 
@@ -1469,10 +1472,8 @@ function updateFishAreaSound() {
 // instant they leave bird form or leave the bird area bounds.
 // ------------------------------------------------------------
 function updateFlappingSound() {
-  if (!flappingsound) return;
-
-  const bird = findArea(levelAreas, "bird"); // ADDED
-  if (!bird) return; // ADDED — guard in case levelAreas isn't populated yet
+  const bird = findArea(levelAreas, "bird");
+  if (!bird) return;
 
   const inBirdArea =
     player.x >= bird.bounds.x && player.x < bird.bounds.x + bird.bounds.w;
@@ -1480,10 +1481,20 @@ function updateFlappingSound() {
   const shouldPlay =
     player.form === FORM_BIRD && inBirdArea && (player.isMoving || isFlapping);
 
+  const activeSound = currentScreen === LEVEL_TWO ? birdflapsound : flappingsound;
+  const otherSound = currentScreen === LEVEL_TWO ? flappingsound : birdflapsound;
+
+  if (otherSound && otherSound.isPlaying()) {
+    otherSound.stop();
+  }
+
   if (shouldPlay) {
-    if (!flappingsound.isPlaying()) flappingsound.loop();
-  } else {
-    if (flappingsound.isPlaying()) flappingsound.stop();
+    if (activeSound && !activeSound.isPlaying()) {
+      activeSound.loop();
+      activeSound.setVolume(2.5);
+    }
+  } else if (activeSound && activeSound.isPlaying()) {
+    activeSound.stop();
   }
 }
 
@@ -1491,6 +1502,7 @@ function stopAllGameSounds() {
   const sounds = [
     walkingsound,
     flappingsound,
+    birdflapsound,
     fishareasound,
     humanBGsound,
     birdBGsound,
@@ -2592,6 +2604,10 @@ function checkKeys() {
       keyMap.set(mapKey, true);
       keyCollected++;
       portalUnlocked = portalIsUnlocked();
+      if (portalUnlocked && !portalOpeningPlayed) {
+        if (portalOpeningSound) portalOpeningSound.play();
+        portalOpeningPlayed = true;
+      }
 
     // Bats (Level 2): the 2nd rune spikes noise to max and wakes them.
       if (currentScreen === LEVEL_TWO && keyCollected === 2 && !batsWoken) {
@@ -2821,12 +2837,13 @@ function drawTiles(area) {
   }
 
   for (let l = layers.length - 1; l > -1; l--) {
-    const layer = layers[l];
+    const layer = layers[l]; // skip drawing these tiles
     if (layer.name === "water") continue;
     if (layer.name === "bg green") continue;
     if (layer.name === "background") continue;
     if (layer.name === BAT_LAYER) continue;              
     if (layer.name === DRAGON_SPAWN_LAYER) continue;
+    if (layer.name === "fish spawn") continue;
 
     let spikePositions = null;
     if (area.key === "bird" && layer.name === "spikes") {
@@ -2935,6 +2952,11 @@ function drawTiles(area) {
       } else if (layer.name === "bark") {
         barkImg
           ? image(barkImg, x, y, TILE_SIZE, TILE_SIZE)
+          : (fill(tileColor(layer.name, t.id)),
+            rect(x, y, TILE_SIZE, TILE_SIZE));
+      } else if (layer.name === "bridge") {
+        bridgeImg
+          ? image(bridgeImg, x, y, TILE_SIZE, TILE_SIZE)
           : (fill(tileColor(layer.name, t.id)),
             rect(x, y, TILE_SIZE, TILE_SIZE));
       } else if (layer.name === "water surface") {
@@ -3228,10 +3250,10 @@ function handleInput() {
     player.vy = constrain(player.vy, -TERMINAL_VELOCITY, TERMINAL_VELOCITY);
     player.y += player.vy;
 
-    if (player.form === FORM_BIRD && (keyIsDown(87) || keyIsDown(UP_ARROW))) {
-      player.vy = FLAP_FORCE;
-       player.isMoving = true;
-    }
+    if (player.form === FORM_BIRD && (keyIsDown(87) || keyIsDown(UP_ARROW) || keyIsDown(32))) {
+  player.vy = FLAP_FORCE;
+  player.isMoving = true;
+}
 
     player.isGrounded = false;
   }
