@@ -27,7 +27,7 @@ const LEVEL3_BOSS_CONFIG = {
   maxHealth: 1000,
   wallDamage: 50,
   chargeSpeed: 6,
-  chaseSpeed: 4,   // ADDED — FLY-phase pursuit speed
+  chaseSpeed: 6.5,   // FLY-phase pursuit speed — increased from 4
   telegraphFrames: 90,
   stunFrames: 70,
   tileSpan: 2.5,
@@ -45,9 +45,9 @@ const LEVEL3_PHASE = {
 };
 
 const ROCK_CONFIG = {
-  damage: 100,
+  damage: 25,
   throwSpeed: 10,
-  hitRadius: 24, // how close a thrown rock must get to the boss to count as a hit
+  hitRadius: 90, // how close a thrown rock must get to the boss to count as a hit — was 24, tiny next to the ~333x224 dragon sprite, so rocks visually overlapping it often didn't register
   respawnFrames: 180, // ~3s after a pedestal's rock is thrown, a new one appears
 };
 
@@ -62,6 +62,12 @@ let thrownRocks = []; // active in-flight projectiles
 let level3BossPath = [];
 let level3BossPathIndex = 0;
 let level3BossPathRecalcTimer = 0;
+// Stuck-detection/nudge state — see updateDragon() in sketch.js for why.
+let level3BossStillFrames = 0;
+let level3BossPrevX = 0;
+let level3BossPrevY = 0;
+let level3BossNudging = false;
+let level3BossNudgeTargetY = 0;
 let level3BossDefeated = false;
 
 let level3ShowRockTutorial = false; // true right when entering the bird arena, until dismissed
@@ -474,23 +480,38 @@ function enterLevel3FlyPhase() {
   moveToLevel3BirdArena();
 }
 
+// Finds a named layer's tiles within an area's raw JSON data (e.g. a
+// "player spawn" or "stone" marker layer), converting each tile from the
+// JSON's local grid coords to world pixel coords (tile-centered).
+function findAreaLayerWorldTiles(area, layerName) {
+  const layer = area.json.layers.find((l) => l.name === layerName);
+  if (!layer) return [];
+  return layer.tiles.map((t) => ({
+    x: area.bounds.x + t.x * TILE_SIZE + TILE_SIZE / 2,
+    y: area.bounds.y + t.y * TILE_SIZE + TILE_SIZE / 2,
+  }));
+}
+
 function moveToLevel3BirdArena() {
   const bird = findArea(levelAreas, "bird");
   if (!bird) return;
 
   deactivateLevel3Barrier();
 
-  const cx = bird.bounds.x + bird.bounds.w / 2;
-  const cy = bird.bounds.y + bird.bounds.h / 2;
+  const spawnTiles = findAreaLayerWorldTiles(bird, "bird spawn");
+  const spawn = spawnTiles[0] || {
+    x: bird.bounds.x + bird.bounds.w / 2,
+    y: bird.bounds.y + bird.bounds.h / 2,
+  };
 
-  player.x = cx;
-player.y = cy;                    // CHANGED — player now spawns at ground level
+  player.x = spawn.x;
+  player.y = spawn.y;
   player.vx = 0;
   player.vy = 0;
   player.form = FORM_BIRD;
 
-  level3Boss.x = cx;
-level3Boss.y = cy - 2 * TILE_SIZE; // CHANGED — boss now spawns above,
+  level3Boss.x = spawn.x + 16 * TILE_SIZE; // 16 tiles right of the player
+  level3Boss.y = spawn.y;
   level3Boss.vx = 0;
   level3Boss.vy = 0;
   level3Boss.state = BOSS3_STATE.CHASING; // CHANGED from AIMING
@@ -498,14 +519,14 @@ level3Boss.y = cy - 2 * TILE_SIZE; // CHANGED — boss now spawns above,
   level3BossPath = [];                     // ADDED
   level3BossPathIndex = 0;                 // ADDED
   level3BossPathRecalcTimer = DRAGON_PATH_RECALC_INTERVAL; // ADDED — force a fresh path next frame
+  level3BossStillFrames = 0;
+  level3BossNudging = false;
+  level3BossPrevX = level3Boss.x;
+  level3BossPrevY = level3Boss.y;
 
   thrownRocks = [];
-  rockPedestals = [
-    { x: bird.bounds.x + bird.bounds.w * 0.25, y: bird.bounds.y + bird.bounds.h * 0.2, hasRock: true, respawnTimer: 0 },
-    { x: bird.bounds.x + bird.bounds.w * 0.55, y: bird.bounds.y + bird.bounds.h * 0.35, hasRock: true, respawnTimer: 0 },
-    { x: bird.bounds.x + bird.bounds.w * 0.85, y: bird.bounds.y + bird.bounds.h * 0.2, hasRock: true, respawnTimer: 0 },
-    { x: bird.bounds.x + bird.bounds.w * 0.4, y: bird.bounds.y + bird.bounds.h * 0.75, hasRock: true, respawnTimer: 0 },
-  ];
+  const stoneTiles = findAreaLayerWorldTiles(bird, "stone");
+  rockPedestals = stoneTiles.map((t) => ({ x: t.x, y: t.y, hasRock: true, respawnTimer: 0 }));
 
    level3ShowRockTutorial = true; // freezes the fight until the player dismisses this
 
@@ -606,7 +627,7 @@ function drawLevel3RockTutorial() {
   textAlign(CENTER, CENTER);
   fill(255);
   textSize(22);
-  text("Grab rocks and press SPACE to throw", width / 2, height / 2 - 12);
+  text("Grab rocks and press E to throw", width / 2, height / 2 - 12);
 
   fill(200);
   textSize(13);
@@ -643,6 +664,7 @@ function updateLevel3Rocks() {
 
     if (dist(r.x, r.y, level3Boss.x, level3Boss.y) < ROCK_CONFIG.hitRadius) {
       damageLevel3Boss(ROCK_CONFIG.damage);
+      if (dragonGrowl) dragonGrowl.play();
       thrownRocks.splice(i, 1);
       continue;
     }
@@ -714,6 +736,35 @@ function drawLevel3BossFightWorld() {
     pop();
   }
 
+  // Rock pedestals + carried/thrown rocks — drawn before the dragon so its
+  // sprite renders on top of them, not the other way around.
+  if (level3Phase === LEVEL3_PHASE.FLY) {
+    push();
+    rectMode(CENTER);
+    for (const p of rockPedestals) {
+      if (p.hasRock) {
+        fill(150, 150, 150);
+        noStroke();
+        ellipse(p.x, p.y, 45, 45); // matches the thrown-rock size below
+      }
+    }
+    for (const r of thrownRocks) {
+      fill(150, 150, 150);
+      noStroke();
+      ellipse(r.x, r.y, 45, 45);
+    }
+    pop();
+
+    // Carried-rock indicator above the player
+    if (player.carryingRock) {
+      push();
+      fill(150, 150, 150);
+      noStroke();
+      ellipse(player.x, player.y - 30, 14, 14);
+      pop();
+    }
+  }
+
   push();
   imageMode(CENTER);
 
@@ -758,36 +809,6 @@ function drawLevel3BossFightWorld() {
   }
 
   pop();
-
-  // Rock pedestals + carried/thrown rocks
-  if (level3Phase === LEVEL3_PHASE.FLY) {
-    push();
-    rectMode(CENTER);
-    for (const p of rockPedestals) {
-      fill(120, 90, 60);
-      noStroke();
-      rect(p.x, p.y + 10, 36, 16, 4); // pedestal base
-      if (p.hasRock) {
-        fill(150, 150, 150);
-        ellipse(p.x, p.y - 6, 22, 20);
-      }
-    }
-    for (const r of thrownRocks) {
-      fill(150, 150, 150);
-      noStroke();
-      ellipse(r.x, r.y, 45, 45);
-    }
-    pop();
-
-    // Carried-rock indicator above the player
-    if (player.carryingRock) {
-      push();
-      fill(150, 150, 150);
-      noStroke();
-      ellipse(player.x, player.y - 30, 14, 14);
-      pop();
-    }
-  }
 }
 
 // ------------------------------------------------------------
@@ -841,22 +862,55 @@ function drawLevel3HUD() {
   }
   pop();
 
-  // Carried-rock indicator (phase 2)
+  // Carried-rock indicator (phase 2) — bottom of screen, same size/position
+  // as the portal fade message (drawFadeMessage() in sketch.js) so it's
+  // more noticeable than a small corner HUD label.
   if (level3Phase === LEVEL3_PHASE.FLY && player.carryingRock) {
     push();
     fill(255);
-    textAlign(LEFT, TOP);
+    textAlign(CENTER, CENTER);
     textFont("monospace");
-    textSize(12);
-    text("Rock ready — [SPACE] to throw", startX, startY + heartSize + 12);
+    textSize(16);
+    text("Rock ready — [E] to throw", width / 2, height - 40);
     pop();
   }
 
   drawLevel3RockTutorial();
 }
 
+// True if the boss's collision box, centered at (x,y), would overlap any
+// currently-solid tile — a pure check, doesn't move anything. See
+// dragonBoxOverlapsSolid() in sketch.js (same idea, level 2's dragon).
+function level3BossBoxOverlapsSolid(x, y) {
+  const halfW = level3Boss.w / 2;
+  const halfH = level3Boss.h / 2;
+  for (const t of solidTiles) {
+    const overlapX = Math.min(x + halfW, t.x + t.w) - Math.max(x - halfW, t.x);
+    const overlapY = Math.min(y + halfH, t.y + t.h) - Math.max(y - halfH, t.y);
+    if (overlapX > 0 && overlapY > 0) return true;
+  }
+  return false;
+}
+
 // ADDED — mirrors updateDragon()/recalcDragonPath() from level 2
 function updateLevel3BossChase() {
+  // Currently easing up out of a stuck spot (see below) — glide toward the
+  // target tile instead of snapping, and skip normal path-following until
+  // it arrives so the two movements don't fight each other.
+  if (level3BossNudging) {
+    const diff = level3BossNudgeTargetY - level3Boss.y;
+    if (Math.abs(diff) < LEVEL3_BOSS_CONFIG.chaseSpeed) {
+      level3Boss.y = level3BossNudgeTargetY;
+      level3BossNudging = false;
+    } else {
+      level3Boss.y += Math.sign(diff) * LEVEL3_BOSS_CONFIG.chaseSpeed;
+    }
+    resolveLevel3BossSolidCollisions();
+    level3BossPrevX = level3Boss.x;
+    level3BossPrevY = level3Boss.y;
+    return;
+  }
+
   level3BossPathRecalcTimer++;
   if (
     level3BossPathRecalcTimer >= DRAGON_PATH_RECALC_INTERVAL ||
@@ -894,6 +948,25 @@ function updateLevel3BossChase() {
   level3Boss.facing = dx < 0 ? "left" : "right";
 
   resolveLevel3BossSolidCollisions();
+
+  // If the boss hasn't actually moved for a while (snagged on a corner/
+  // ledge), ease it up one tile to break out rather than sitting frozen —
+  // but only if there's actually open space to move into.
+  const moved = dist(level3Boss.x, level3Boss.y, level3BossPrevX, level3BossPrevY);
+  if (moved < 0.5) {
+    level3BossStillFrames++;
+    if (level3BossStillFrames > 30) {
+      if (!level3BossBoxOverlapsSolid(level3Boss.x, level3Boss.y - TILE_SIZE)) {
+        level3BossNudging = true;
+        level3BossNudgeTargetY = level3Boss.y - TILE_SIZE;
+      }
+      level3BossStillFrames = 0;
+    }
+  } else {
+    level3BossStillFrames = 0;
+  }
+  level3BossPrevX = level3Boss.x;
+  level3BossPrevY = level3Boss.y;
 }
 
 function moveToLevel3EndArea() {
@@ -908,12 +981,25 @@ function initLevel3Epilogue() {
   const end = findArea(levelAreas, "end");
   if (!end) return;
 
-  const groundY = end.bounds.y + 26 * TILE_SIZE; // top of the grass row (confirmed from the JSON)
   const halfSpan = (DRAGON_CONFIG.tileSpan * TILE_SIZE) / 2;
 
-  // Player: on solid ground, between the dragon and the door.
-  player.x = end.bounds.x + 12 * TILE_SIZE;
-  player.y = end.bounds.y + 24 * TILE_SIZE; // a couple tiles above the floor — gravity settles it
+  // Player and dragon spawn at their named marker tiles — averaged in case
+  // a marker spans more than one tile (e.g. "dragon spawn" is 2 tiles wide).
+  const averageTiles = (tiles) =>
+    tiles.length
+      ? { x: tiles.reduce((s, t) => s + t.x, 0) / tiles.length, y: tiles.reduce((s, t) => s + t.y, 0) / tiles.length }
+      : null;
+  const humanSpawn = averageTiles(findAreaLayerWorldTiles(end, "human spawn")) || {
+    x: end.bounds.x + 12 * TILE_SIZE,
+    y: end.bounds.y + 26 * TILE_SIZE - player.r,
+  };
+  const dragonSpawn = averageTiles(findAreaLayerWorldTiles(end, "dragon spawn")) || {
+    x: end.bounds.x + 32 * TILE_SIZE,
+    y: end.bounds.y + 26 * TILE_SIZE - halfSpan,
+  };
+
+  player.x = humanSpawn.x;
+  player.y = humanSpawn.y;
   player.vx = 0;
   player.vy = 0;
   player.form = FORM_HUMAN;
@@ -923,8 +1009,8 @@ function initLevel3Epilogue() {
 
   // Dragon: near the right bark wall, facing back toward the player.
   level3EndDragon = {
-    x: end.bounds.x + 32 * TILE_SIZE,
-    y: groundY - halfSpan,
+    x: dragonSpawn.x,
+    y: dragonSpawn.y,
     w: DRAGON_CONFIG.tileSpan * TILE_SIZE,
     h: DRAGON_CONFIG.tileSpan * TILE_SIZE,
     facing: "left",
@@ -983,7 +1069,13 @@ function updateLevel3Epilogue() {
   if (level3EpilogueState === LEVEL3_EPILOGUE_STATE.IDLE) {
     level3EndDragon.facing = player.x < level3EndDragon.x ? "left" : "right";
     level3EndDragonIsMoving = false;
-    if (dist(player.x, player.y, level3EndDragon.x, level3EndDragon.y) < LEVEL3_EPILOGUE_CONFIG.approachDistance) {
+    // Same threshold/measurement the MIMIC state uses to decide when the
+    // dragon starts following (edge-to-edge along x, not raw center
+    // distance) — so dialogue triggers at exactly the same "how close is
+    // close enough" point as the later follow behavior.
+    const halfW = level3EndDragon.w / 2;
+    const edgeDist = Math.abs(player.x - level3EndDragon.x) - halfW;
+    if (edgeDist < LEVEL3_MIMIC_CONFIG.followRange) {
       level3EpilogueState = LEVEL3_EPILOGUE_STATE.DIALOGUE;
       level3DialogueIndex = 0;
     }
@@ -1052,6 +1144,17 @@ function updateLevel3Epilogue() {
     } else {
       level3EndDragonChasing = false;
     }
+  }
+
+  // Vertical: always ease toward the player's height, independent of the
+  // horizontal follow-range logic above — a staircase changes player.y
+  // without necessarily crossing the horizontal follow/stop thresholds,
+  // so this can't be gated on level3EndDragonChasing the way x is.
+  const dy = player.y - level3EndDragon.y;
+  const yStep = Math.min(LEVEL3_MIMIC_CONFIG.followSpeed, Math.abs(dy));
+  if (yStep > 0.01) {
+    level3EndDragon.y += Math.sign(dy) * yStep;
+    moved = true;
   }
 
   level3EndDragonIsMoving = moved; // reflects actual movement, never "stuck"
@@ -1135,6 +1238,14 @@ function drawLevel3DialogueUI() {
     textSize(16);
     text("This will work.", 24, height - boxH + 40);
     level3EpilogueLineTimer--;
+    // Portal is already mechanically unlocked (set the moment Y was chosen)
+    // — this is just the sound/message cue, timed to land right after the
+    // line finishes rather than talking over it.
+    if (level3EpilogueLineTimer === 0 && !portalOpeningPlayed) {
+      if (portalOpeningSound) portalOpeningSound.play();
+      showFadeMessage("A portal has opened somewhere...");
+      portalOpeningPlayed = true;
+    }
   }
   pop();
 }

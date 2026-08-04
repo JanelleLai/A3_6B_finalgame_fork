@@ -663,19 +663,64 @@ function debugAreaFormFor(areaKey) {
   return FORM_HUMAN;
 }
 
-// Teleports into one of a level's areas with rune count (and therefore
-// which GATE_LAYERS barriers are open) set proportional to that area's
-// position in the level, rather than dropping in with everything still
-// locked — e.g. jumping to the last area sets keyCollected as if you'd
-// collected runes all the way there.
+// Counts runes positioned to the left of targetX — a simple stand-in for
+// "how many runes would a real playthrough have collected by the time it
+// reaches here." A full reachability simulation (flood-fill honoring
+// GATE_LAYERS) was tried and discarded: these barriers are partial-height
+// obstacles that rely on the level's actual floor/ceiling geometry plus
+// jump/flight limits to function as gates, so a walkability flood fill
+// (which ignores gravity and jump arcs) routes around them freely and
+// wildly over-collects. Plain left-to-right rune position isn't perfect
+// either — a rune can sit at a smaller x than a checkpoint while actually
+// belonging to a different vertical lane (e.g. a bird-height pickup near
+// a fish-depth checkpoint) reachable only after passing a gate that rune
+// itself sits right next to — but it matches every case checked except
+// that one, and is far simpler than getting full physics-aware pathing
+// right for a debug convenience feature.
+function debugComputeKeysForTarget(targetX) {
+  return keyTilesList.filter((rune) => rune.x < targetX).length;
+}
 function debugJumpToArea(levelId, areaKey) {
   goToScreen(levelId);
 
-  const areas = LEVELS[levelId].areas;
-  const index = areas.findIndex((a) => a.key === areaKey);
-  const proportion = areas.length > 1 ? index / (areas.length - 1) : 0;
-  keyCollected = Math.round(proportion * requiredPortalKeys);
-  portalUnlocked = portalIsUnlocked();
+  if (levelId === LEVEL_THREE) {
+    // Level 3's "areas" are boss-fight phases, not just checkpoints —
+    // just repositioning the player left the fish-phase boss (fresh from
+    // initLevel3BossFight() inside goToScreen/loadLevel) still active in
+    // the wrong arena, attacking the player from off-map until it
+    // eventually died on its own. Replay the real phase-transition
+    // functions instead, so the boss/epilogue state ends up exactly like
+    // reaching that phase for real (fish boss already retired) — not just
+    // the player's position.
+    // Also set lastCheckpoint to the fish arena's checkpoint (whatever a
+    // real playthrough would have touched last before the fight) — jumping
+    // straight in otherwise leaves it null (reset by loadLevel above), so
+    // dying respawns all the way back at the level's original start
+    // instead of a sensible spot before the boss fight.
+    const fishArea = findArea(levelAreas, "fish");
+    const fishCp = fishArea && checkpoints.find(
+      (cp) => cp.x >= fishArea.bounds.x && cp.x < fishArea.bounds.x + fishArea.bounds.w &&
+        cp.y >= fishArea.bounds.y && cp.y < fishArea.bounds.y + fishArea.bounds.h,
+    );
+    if (fishCp) lastCheckpoint = { x: fishCp.spawnX, y: fishCp.spawnY };
+
+    if (areaKey === "bird") {
+      enterLevel3FlyPhase(); // sets level3Phase, repositions player+boss, sets up rockPedestals
+      // Match the real SWIM->FLY trigger's HP exactly (damageLevel3Boss()
+      // calls this once hp drops to 800) — otherwise the boss still has
+      // its full maxHealth, wrong for a fight that's supposedly already
+      // past the swim phase.
+      if (level3Boss) level3Boss.hp = 800;
+    } else if (areaKey === "end") {
+      stopAllGameSounds();
+      level3BossDefeated = true;
+      level3Boss = null;
+      moveToLevel3EndArea();
+    }
+    // "fish" needs no special handling — the fresh SWIM-phase fight from
+    // loadLevel() above is already the correct state for it.
+    return;
+  }
 
   const area = findArea(levelAreas, areaKey);
   if (area) {
@@ -701,6 +746,10 @@ function debugJumpToArea(levelId, areaKey) {
       player.y = area.bounds.y + 50;
     }
   }
+
+  keyCollected = debugComputeKeysForTarget(player.x);
+  portalUnlocked = portalIsUnlocked();
+
   player.form = debugAreaFormFor(areaKey);
   player.vx = 0;
   player.vy = 0;
@@ -3307,6 +3356,9 @@ function drawTiles(area) {
     if (layer.name === BAT_LAYER) continue;
     if (layer.name === DRAGON_SPAWN_LAYER) continue;
     if (layer.name === "fish spawn") continue;
+    if (layer.name === "bird spawn") continue; // marker layer, position only
+    if (layer.name === "stone") continue; // marker layer — actual pedestals drawn elsewhere
+    if (layer.name === "human spawn") continue; // marker layer, position only
     if (layer.name === WHIRLPOOL_LAYER) {
       drawWhirlpoolLayer(layer.tiles, mapXOffset, mapYOffset);
       continue;
@@ -3874,11 +3926,11 @@ if (currentScreen === LEVEL_THREE && level3EpilogueState === LEVEL3_EPILOGUE_STA
   return;
 }
 
-  // Level 3 phase 2 — Space throws the currently-carried rock at the
+  // Level 3 phase 2 — E throws the currently-carried rock at the
   // boss (auto-aimed). No-op outside phase 2 or without a rock carried;
   // see throwLevel3Rock() in levelthree_boss.js.
   if (
-    key === " " &&
+    (key === "e" || key === "E") &&
     currentScreen === LEVEL_THREE &&
     typeof throwLevel3Rock === "function"
   ) {
