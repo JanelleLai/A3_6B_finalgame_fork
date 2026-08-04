@@ -393,7 +393,9 @@ let grass2Img;
 let ground2Img;
 let barkImg;
 let seaweedImg;
+let seaweed2Img;
 let sandImg;
+let sand2Img;
 let sandrockImg;
 let rockImg;
 let rock2Img;
@@ -402,6 +404,7 @@ let spike1Img;
 let spike2Img;
 let spike3Img;
 let spike4Img;
+let spikeImg2;
 let waterSurfaceImg;
 let portalClosedImg;
 let portalOpenImg;
@@ -488,7 +491,7 @@ const PORTAL_LAYER = "door";
 
 // ------------------------------------------------------------
 // FADE MESSAGE — a one-line bottom-of-screen notification that fades in,
-// holds, then fades out. Used for "Something has opened up somewhere..."
+// holds, then fades out. Used for "A portal has opened [...]"
 // when a level's portal unlocks, but generic enough to reuse elsewhere.
 // ------------------------------------------------------------
 const FADE_MESSAGE_DURATION_FRAMES = 240; // 4s at 60fps, total time visible
@@ -705,30 +708,51 @@ function debugJumpToArea(levelId, areaKey) {
 }
 
 // DEBUG — win: level 3 replicates pressing Y at the epilogue choice;
-// levels 1/2 unlock the portal and go straight to the win screen, same
-// as walking into it (see checkPortalEntrance()).
+// levels 1/2 unlock the portal and place the player standing inside it
+// (now lit/open) so checkPortalEntrance() naturally fires STATE_WIN next
+// frame, same as actually walking into it. Only reloads the level if you
+// weren't already on it — reloading would reset lastCheckpoint/progress,
+// which "win"/"lose" from mid-level shouldn't do.
 function debugWinLevel(levelId) {
+  if (currentScreen !== levelId) goToScreen(levelId);
+  // A prior debug win/lose (or a real one) can leave gameState on WIN/OVER
+  // or isRespawning stuck true — both gate off the update loop entirely
+  // (see drawLevelScreen()), so nothing would happen without resetting them.
+  gameState = STATE_PLAY;
+  isRespawning = false;
+
   if (levelId === LEVEL_THREE) {
-    goToScreen(levelId);
     debugTriggerLevel3EpilogueChoice(true);
     return;
   }
-  goToScreen(levelId);
+
   keyCollected = requiredPortalKeys;
-  portalUnlocked = portalIsUnlocked();
-  stopAllGameSounds();
-  gameState = STATE_WIN;
+  unlockPortal();
+  if (portalTiles.length > 0) {
+    const t = portalTiles[0];
+    player.x = t.x + t.w / 2;
+    player.y = t.y + t.h / 2;
+    player.vx = 0;
+    player.vy = 0;
+  }
+  snapCameraToPlayer();
 }
 
 // DEBUG — lose: level 3 replicates pressing N (gets chased/caught); levels
 // 1/2 die and respawn at the last checkpoint, same as any hazard death.
+// Only reloads the level if you weren't already on it, so respawning uses
+// whatever checkpoint you'd actually reached rather than resetting to the
+// level's start.
 function debugLoseLevel(levelId) {
+  if (currentScreen !== levelId) goToScreen(levelId);
+  gameState = STATE_PLAY;
+  isRespawning = false;
+
   if (levelId === LEVEL_THREE) {
-    goToScreen(levelId);
     debugTriggerLevel3EpilogueChoice(false);
     return;
   }
-  goToScreen(levelId);
+
   respawnFromHazard();
 }
 
@@ -857,7 +881,9 @@ function preload() {
   barkImg = loadImage("assets/images/bark.png");
 
   seaweedImg = loadImage("assets/images/seaweed.png");
+  seaweed2Img = loadImage("assets/images/2seaweed.png");
   sandImg = loadImage("assets/images/sand.png");
+  sand2Img = loadImage("assets/images/2sand.png");
   sandrockImg = loadImage("assets/images/sandrock.png");
 
   rockImg = loadImage("assets/images/rock.png");
@@ -867,6 +893,7 @@ function preload() {
   spike2Img = loadImage("assets/images/spike2.png");
   spike3Img = loadImage("assets/images/spike3.png");
   spike4Img = loadImage("assets/images/spike4.png");
+  spikeImg2 = loadImage("assets/images/2Spike.png");
   barrierImg = loadImage("assets/images/barrier.png");
 
   waterSurfaceImg = loadImage("assets/images/watersurface.png");
@@ -1126,31 +1153,37 @@ function getAreaAt(px, py) {
 
 const AREA_EDGE_EPS = 2; // px tolerance for treating two bounds as "touching"
 
-// Returns which sides of `area` are bordered by another area (and so
-// shouldn't be clamped) based purely on geometry — does two areas'
-// edges touch, with overlapping range on the perpendicular axis.
-function getAreaOpenEdges(area) {
-  const edges = { left: false, right: false, top: false, bottom: false };
+// Returns, per side of `area`, the perpendicular-axis SEGMENT(S) (not just
+// a whole-edge yes/no) where another area actually borders it. Two areas
+// can share an edge only partway along its length (e.g. level 1's "fish"
+// area sits below just the right portion of "bird", not the whole width)
+// — treating the whole edge as open whenever ANY overlap exists let the
+// camera scroll past the level's true boundary anywhere else along that
+// same edge.
+function getAreaOpenRanges(area) {
+  const ranges = { left: [], right: [], top: [], bottom: [] };
   for (const other of levelAreas) {
     if (other === area) continue;
 
-    const vOverlap =
-      Math.min(area.bounds.y + area.bounds.h, other.bounds.y + other.bounds.h) -
-      Math.max(area.bounds.y, other.bounds.y);
-    if (vOverlap > AREA_EDGE_EPS) {
-      if (Math.abs(other.bounds.x - (area.bounds.x + area.bounds.w)) < AREA_EDGE_EPS) edges.right = true;
-      if (Math.abs((other.bounds.x + other.bounds.w) - area.bounds.x) < AREA_EDGE_EPS) edges.left = true;
+    const vStart = Math.max(area.bounds.y, other.bounds.y);
+    const vEnd = Math.min(area.bounds.y + area.bounds.h, other.bounds.y + other.bounds.h);
+    if (vEnd - vStart > AREA_EDGE_EPS) {
+      if (Math.abs(other.bounds.x - (area.bounds.x + area.bounds.w)) < AREA_EDGE_EPS) ranges.right.push([vStart, vEnd]);
+      if (Math.abs((other.bounds.x + other.bounds.w) - area.bounds.x) < AREA_EDGE_EPS) ranges.left.push([vStart, vEnd]);
     }
 
-    const hOverlap =
-      Math.min(area.bounds.x + area.bounds.w, other.bounds.x + other.bounds.w) -
-      Math.max(area.bounds.x, other.bounds.x);
-    if (hOverlap > AREA_EDGE_EPS) {
-      if (Math.abs(other.bounds.y - (area.bounds.y + area.bounds.h)) < AREA_EDGE_EPS) edges.bottom = true;
-      if (Math.abs((other.bounds.y + other.bounds.h) - area.bounds.y) < AREA_EDGE_EPS) edges.top = true;
+    const hStart = Math.max(area.bounds.x, other.bounds.x);
+    const hEnd = Math.min(area.bounds.x + area.bounds.w, other.bounds.x + other.bounds.w);
+    if (hEnd - hStart > AREA_EDGE_EPS) {
+      if (Math.abs(other.bounds.y - (area.bounds.y + area.bounds.h)) < AREA_EDGE_EPS) ranges.bottom.push([hStart, hEnd]);
+      if (Math.abs((other.bounds.y + other.bounds.h) - area.bounds.y) < AREA_EDGE_EPS) ranges.top.push([hStart, hEnd]);
     }
   }
-  return edges;
+  return ranges;
+}
+
+function isInOpenRange(ranges, pos) {
+  return ranges.some(([s, e]) => pos >= s - AREA_EDGE_EPS && pos <= e + AREA_EDGE_EPS);
 }
 
 // Levels whose areas are distinct arenas rather than a continuous
@@ -1171,29 +1204,36 @@ function getCamClampBounds(px, py) {
     };
   }
 
-  // Otherwise (levels 1 & 2): only clamp on edges that don't border
-  // another area, so the camera scrolls freely across a seam like
-  // bird -> fish instead of stopping dead at the area boundary.
-  const open = getAreaOpenEdges(area);
+  // Otherwise (levels 1 & 2): only skip clamping on the specific segment of
+  // an edge that borders another area (checked against the player's actual
+  // position along that edge), so the camera scrolls freely across a seam
+  // like bird -> fish there, while still clamping the REST of that same
+  // edge where nothing borders it.
+  const ranges = getAreaOpenRanges(area);
   return {
-    x0: open.left ? 0 : area.bounds.x,
-    y0: open.top ? 0 : area.bounds.y,
-    x1: open.right ? WORLD_W : area.bounds.x + area.bounds.w,
-    y1: open.bottom ? WORLD_H : area.bounds.y + area.bounds.h,
+    x0: isInOpenRange(ranges.left, py) ? 0 : area.bounds.x,
+    y0: isInOpenRange(ranges.top, px) ? 0 : area.bounds.y,
+    x1: isInOpenRange(ranges.right, py) ? WORLD_W : area.bounds.x + area.bounds.w,
+    y1: isInOpenRange(ranges.bottom, px) ? WORLD_H : area.bounds.y + area.bounds.h,
   };
 }
 
 // Snaps the camera directly onto the player (no lerp), clamped per
-// getCamClampBounds(). Used after teleports/respawns/resets. Accounts
-// for camZoom since the true visible span is width/height ÷ camZoom —
-// forgetting that let the clamp fall short whenever zoomed out (e.g.
-// the level 3 boss-fight zoom), which is why it looked "not clamped."
+// getCamClampBounds(). Used after teleports/respawns/resets. Accounts for
+// camZoom the same way updateCamera() does — see the comment there for why
+// the visible window is centered at (cam + width/2), not at cam itself.
 function snapCameraToPlayer() {
   const visibleW = width / camZoom;
   const visibleH = height / camZoom;
+  const halfW = visibleW / 2;
+  const halfH = visibleH / 2;
   const b = getCamClampBounds(player.x, player.y);
-  camX = constrain(player.x - width / 2, b.x0, Math.max(b.x0, b.x1 - visibleW));
-  camY = constrain(player.y - height / 2, b.y0, Math.max(b.y0, b.y1 - visibleH));
+  const minX = b.x0 - width / 2 + halfW;
+  const maxX = b.x1 - width / 2 - halfW;
+  const minY = b.y0 - height / 2 + halfH;
+  const maxY = b.y1 - height / 2 - halfH;
+  camX = constrain(player.x - width / 2, Math.min(minX, maxX), Math.max(minX, maxX));
+  camY = constrain(player.y - height / 2, Math.min(minY, maxY), Math.max(minY, maxY));
 }
 
 function buildLevel1WindZones(levelAreas) {
@@ -1340,7 +1380,12 @@ function drawLevelScreen() {
 
       if (!isRespawning) {
         updateMoveSpeed();
-        handleInput();
+        // Lock movement input during the level 3 stage-transition fade —
+        // otherwise a held key keeps moving the player while hidden behind
+        // the white screen, landing them somewhere unintended once it clears.
+        if (!(currentScreen === LEVEL_THREE && level3TransitionActive)) {
+          handleInput();
+        }
         updateHumanBGSound();
         updateBirdBGSound();
         updateNoiseLevel();
@@ -1377,7 +1422,8 @@ function drawLevelScreen() {
         
         if (currentScreen === LEVEL_THREE) {
   updateLevel3BossFight();
-    updateLevel3Epilogue();   
+    updateLevel3Epilogue();
+    updateLevel3Transition();
 
 } else {
   checkDragonCollision();
@@ -1418,6 +1464,9 @@ drawLevel3EndDragon();
   if (currentScreen === LEVEL_THREE && typeof drawLevel3DialogueUI === "function") {
   drawLevel3DialogueUI();   // ADDED — screen-space, after pop()
 }
+  if (currentScreen === LEVEL_THREE && typeof drawLevel3Transition === "function") {
+    drawLevel3Transition(); // drawn last so it covers the HUD/dialogue too
+  }
   drawInstructions();
   if (gameState === STATE_WIN && level1MessageImg) {
     stopAllGameSounds();
@@ -1478,7 +1527,8 @@ function drawNoiseHUD() {
 
   push();
   noStroke();
-  fill(0, 0, 0, 140);
+  // Dark scarlet red, matching the bats — what this meter warns about
+  fill(139, 0, 0, 140);
   rect(x - 10, y - 30, barW + 20, barH + 40, 8);
 
   fill(255);
@@ -1487,13 +1537,9 @@ function drawNoiseHUD() {
   textAlign(CENTER, TOP);
   text("NOISE", x + barW / 2, y - 20);
 
-  // Track (empty background of the bar) — bordered in the same dark
-  // scarlet red as the bats, since they're what the noise meter warns about
-  stroke(139, 0, 0);
-  strokeWeight(2);
-  fill(60, 60, 60);
+  // Track (empty background of the bar) — dark red, matching the panel
+  fill(70, 15, 15);
   rect(x, y, barW, barH, 4);
-  noStroke();
 
   // Fill height, growing from the bottom up as noise increases
   const fillH = barH * t;
@@ -1897,8 +1943,22 @@ function updateCamera() {
   let targetY = player.y - height / 1.7;
 
   const b = getCamClampBounds(player.x, player.y);
-  targetX = constrain(targetX, b.x0, Math.max(b.x0, b.x1 - visibleW));
-  targetY = constrain(targetY, b.y0, Math.max(b.y0, b.y1 - visibleH));
+  // The render transform (drawLevelScreen: translate by (width/2)*(1-camZoom)
+  // - camX*camZoom, then scale(camZoom)) scales around screen-center, so the
+  // true visible world window is centered at (camX + width/2), spanning
+  // [camX + width/2 - visibleW/2, camX + width/2 + visibleW/2] — not
+  // [camX, camX+visibleW] as constraining camX directly assumes. Those only
+  // coincide when camZoom === 1; at any other zoom (idle is 0.8) clamping
+  // camX itself left the true edge several tiles short on one side and
+  // that same amount past it on the other.
+  const halfW = visibleW / 2;
+  const halfH = visibleH / 2;
+  const minX = b.x0 - width / 2 + halfW;
+  const maxX = b.x1 - width / 2 - halfW;
+  const minY = b.y0 - height / 2 + halfH;
+  const maxY = b.y1 - height / 2 - halfH;
+  targetX = constrain(targetX, Math.min(minX, maxX), Math.max(minX, maxX));
+  targetY = constrain(targetY, Math.min(minY, maxY), Math.max(minY, maxY));
 
   camX = lerp(camX, targetX, CAM_SMOOTHING);
   camY = lerp(camY, targetY, CAM_SMOOTHING);
@@ -2929,6 +2989,18 @@ function portalIsUnlocked() {
   return keyCollected >= requiredPortalKeys;
 }
 
+// Shared by real key-pickups (checkKeys()) and the debug win action, so
+// both trigger the same one-shot sound + fade message instead of the
+// debug path silently skipping it.
+function unlockPortal() {
+  portalUnlocked = portalIsUnlocked();
+  if (portalUnlocked && !portalOpeningPlayed) {
+    if (portalOpeningSound) portalOpeningSound.play();
+    showFadeMessage("A portal has opened [...]");
+    portalOpeningPlayed = true;
+  }
+}
+
 function checkKeys() {
   if (gameState !== STATE_PLAY || keyTotal === 0 || portalUnlocked) return;
 
@@ -2943,12 +3015,7 @@ function checkKeys() {
     if (d < player.r + TILE_SIZE * 0.35) {
       keyMap.set(mapKey, true);
       keyCollected++;
-      portalUnlocked = portalIsUnlocked();
-      if (portalUnlocked && !portalOpeningPlayed) {
-        if (portalOpeningSound) portalOpeningSound.play();
-        showFadeMessage("Something has opened up somewhere...");
-        portalOpeningPlayed = true;
-      }
+      unlockPortal();
 
     // Bats (Level 2): the 2nd rune spikes noise to max and wakes them.
       if (currentScreen === LEVEL_TWO && keyCollected === 2 && !batsWoken) {
@@ -3281,13 +3348,18 @@ function drawTiles(area) {
           );
         }
       } else if (area.key === "fish" && layer.name === "sand") {
-        sandImg
-          ? image(sandImg, x, y, TILE_SIZE, TILE_SIZE)
+        const sandSprite = currentScreen === LEVEL_TWO && sand2Img ? sand2Img : sandImg;
+        sandSprite
+          ? image(sandSprite, x, y, TILE_SIZE, TILE_SIZE)
           : (fill(tileColor(layer.name, t.id)),
             rect(x, y, TILE_SIZE, TILE_SIZE));
       } else if (area.key === "fish" && layer.name === "rock") {
-        sandrockImg
-          ? image(sandrockImg, x, y, TILE_SIZE, TILE_SIZE)
+        // This "rock" layer is the fish area's actual ground/floor tiles
+        // (sandrockImg) — the dominant "sand" you actually see; the
+        // separately-named "sand" layer above is a sparser decorative one.
+        const rockSprite = currentScreen === LEVEL_TWO && sand2Img ? sand2Img : sandrockImg;
+        rockSprite
+          ? image(rockSprite, x, y, TILE_SIZE, TILE_SIZE)
           : (fill(tileColor(layer.name, t.id)),
             rect(x, y, TILE_SIZE, TILE_SIZE));
       } else if (
@@ -3389,6 +3461,7 @@ function drawTiles(area) {
               ? spike4Img
               : spike3Img;
         }
+        if (currentScreen === LEVEL_TWO && spikeImg2) spikeImg = spikeImg2;
 
         let rotation = 0;
         if (!rockBelow) {
@@ -3408,8 +3481,9 @@ function drawTiles(area) {
           rect(x, y, TILE_SIZE, TILE_SIZE);
         }
       } else if (layer.name === "seaweed") {
-        seaweedImg
-          ? image(seaweedImg, x, y, TILE_SIZE, TILE_SIZE)
+        const seaweedSprite = currentScreen === LEVEL_TWO && seaweed2Img ? seaweed2Img : seaweedImg;
+        seaweedSprite
+          ? image(seaweedSprite, x, y, TILE_SIZE, TILE_SIZE)
           : (fill(tileColor(layer.name, t.id)),
             rect(x, y, TILE_SIZE, TILE_SIZE));
       } else if (GATE_LAYERS[layer.name] !== undefined) {

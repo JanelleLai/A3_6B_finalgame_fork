@@ -249,6 +249,7 @@ function activateLevel3Barrier() {
   if (level3BarrierActive || !level3Barrier) return;
   solidTiles.push(level3Barrier);
   level3BarrierActive = true;
+  if (chaseMusic && !chaseMusic.isPlaying()) chaseMusic.loop();
 }
 
 function deactivateLevel3Barrier() {
@@ -344,17 +345,87 @@ function damageLevel3Boss(amount) {
   }
 
   if (level3Phase === LEVEL3_PHASE.SWIM && level3Boss.hp <= 800) {
-    enterLevel3FlyPhase();
+    startLevel3Transition("placeholder text", enterLevel3FlyPhase);
+    return;
   }
 
    if (level3Boss.hp <= 600) {
     stopAllGameSounds();
     level3BossDefeated = true;
     level3Boss = null;
-    moveToLevel3EndArea();   // ADDED
+    startLevel3Transition("placeholder text2", moveToLevel3EndArea);
     return;
   }
 
+}
+
+// ------------------------------------------------------------
+// LEVEL 3 STAGE TRANSITION — fades the screen to white, holds on a
+// quoted line from the dragon, performs the actual area swap while
+// fully white (hidden), then fades back out revealing the new area.
+// ------------------------------------------------------------
+const LEVEL3_TRANSITION_FADE_FRAMES = 45; // ~0.75s each way at 60fps
+const LEVEL3_TRANSITION_HOLD_FRAMES = 150; // ~2.5s held at full white
+let level3TransitionActive = false;
+let level3TransitionTimer = 0;
+let level3TransitionText = "";
+let level3TransitionDidSwap = false;
+let level3TransitionOnSwap = null;
+
+function startLevel3Transition(text, onSwap) {
+  level3TransitionActive = true;
+  level3TransitionTimer = 0;
+  level3TransitionText = text;
+  level3TransitionDidSwap = false;
+  level3TransitionOnSwap = onSwap;
+}
+
+function updateLevel3Transition() {
+  if (!level3TransitionActive) return;
+  level3TransitionTimer++;
+
+  // Swap area at the midpoint of the hold, while the screen is fully white.
+  const swapAt = LEVEL3_TRANSITION_FADE_FRAMES + LEVEL3_TRANSITION_HOLD_FRAMES / 2;
+  if (!level3TransitionDidSwap && level3TransitionTimer >= swapAt) {
+    if (level3TransitionOnSwap) level3TransitionOnSwap();
+    level3TransitionDidSwap = true;
+  }
+
+  const totalFrames = LEVEL3_TRANSITION_FADE_FRAMES * 2 + LEVEL3_TRANSITION_HOLD_FRAMES;
+  if (level3TransitionTimer >= totalFrames) {
+    level3TransitionActive = false;
+  }
+}
+
+function drawLevel3Transition() {
+  if (!level3TransitionActive) return;
+
+  const fadeInEnd = LEVEL3_TRANSITION_FADE_FRAMES;
+  const fadeOutStart = LEVEL3_TRANSITION_FADE_FRAMES + LEVEL3_TRANSITION_HOLD_FRAMES;
+  const totalFrames = fadeOutStart + LEVEL3_TRANSITION_FADE_FRAMES;
+
+  let alpha;
+  if (level3TransitionTimer < fadeInEnd) {
+    alpha = map(level3TransitionTimer, 0, fadeInEnd, 0, 255);
+  } else if (level3TransitionTimer < fadeOutStart) {
+    alpha = 255;
+  } else {
+    alpha = map(level3TransitionTimer, fadeOutStart, totalFrames, 255, 0);
+  }
+
+  push();
+  noStroke();
+  fill(255, alpha);
+  rect(0, 0, width, height);
+
+  if (alpha > 40) {
+    fill(0, alpha);
+    textFont("monospace");
+    textAlign(CENTER, CENTER);
+    textSize(18);
+    text(`"${level3TransitionText}"`, width / 2, height / 2);
+  }
+  pop();
 }
 
 function hasLineOfSightLevel3(x0, y0, x1, y1) {
@@ -613,6 +684,7 @@ function playerTakeDragonHit() {
 }
 
 function restartLevel3Stage() {
+  if (chaseMusic && chaseMusic.isPlaying()) chaseMusic.stop(); // don't let it linger through a reset
   initLevel3BossFight(); // full reset: boss HP, phase, barrier, pedestals, rocks
 
   // Override player position — always the last fish-area checkpoint reached,
@@ -876,7 +948,7 @@ function initLevel3Epilogue() {
 function playPortalOpeningSoundOnce() {
   if (portalUnlocked && !portalOpeningPlayed) {
     if (portalOpeningSound) portalOpeningSound.play();
-    showFadeMessage("Something has opened up somewhere...");
+    showFadeMessage("A portal has opened [...]");
     portalOpeningPlayed = true;
   }
 }
