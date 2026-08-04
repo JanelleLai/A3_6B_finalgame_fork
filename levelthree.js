@@ -1150,12 +1150,12 @@ function updateLevel3Epilogue() {
   // horizontal follow-range logic above — a staircase changes player.y
   // without necessarily crossing the horizontal follow/stop thresholds,
   // so this can't be gated on level3EndDragonChasing the way x is.
-  const dy = player.y - level3EndDragon.y;
-  const yStep = Math.min(LEVEL3_MIMIC_CONFIG.followSpeed, Math.abs(dy));
-  if (yStep > 0.01) {
-    level3EndDragon.y += Math.sign(dy) * yStep;
-    moved = true;
-  }
+  //const dy = player.y - level3EndDragon.y;
+  //const yStep = Math.min(LEVEL3_MIMIC_CONFIG.followSpeed, Math.abs(dy));
+  //if (yStep > 0.01) {
+   // level3EndDragon.y += Math.sign(dy) * yStep;
+  //  moved = true;
+  //}
 
   level3EndDragonIsMoving = moved; // reflects actual movement, never "stuck"
 }
