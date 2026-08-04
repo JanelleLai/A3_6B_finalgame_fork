@@ -163,7 +163,7 @@ const DRAGON_SLEEPING_SPRITE = {
   frameHeight: 0,
   numFrames: 6,
   animSpeed: 15,
-  scale: 0.29,
+  scale: 0.35,
 };
 
 let dragonSheet;
@@ -183,7 +183,7 @@ const BAT_SPRITE = {
   numFrames: 5,    // batsSheet.png has 5 flying frames laid out horizontally
   animSpeed: 6,    // lower = faster wing flap
   scale: 0.12,     // tune to taste — start here and adjust against TILE_SIZE
-  idleScale: 1.5,
+  idleScale: 1,
 };
 
 let batFlySheet;
@@ -3461,6 +3461,11 @@ function drawPlayer() {
 // keyPressed()
 // ------------------------------------------------------------
 function keyPressed() {
+  if (level3ShowRockTutorial) {
+    level3ShowRockTutorial = false;
+    return; // swallow this keypress so it doesn't also jump/throw
+  }
+
   if (handleDebugKeyPress(key, keyCode)) {
     return;
   }
@@ -3486,9 +3491,21 @@ if (currentScreen === LEVEL_THREE && level3EpilogueState === LEVEL3_EPILOGUE_STA
 }
 
 if (currentScreen === LEVEL_THREE && level3EpilogueState === LEVEL3_EPILOGUE_STATE.CHOICE) {
-  if (key === "y" || key === "Y") {
+ if (key === "y" || key === "Y") {
   level3EpilogueState = LEVEL3_EPILOGUE_STATE.MIMIC;
-  level3EndDragonIsMoving = false;
+
+  // Compute initial moving state immediately so we don't show a single
+  // idle frame when the dragon should already be trailing the player.
+  if (level3EndDragon) {
+    const halfW = level3EndDragon.w / 2;
+    const gap = player.x - level3EndDragon.x; // signed
+    const edgeDist = Math.abs(gap) - halfW;
+    level3EndDragonIsMoving = edgeDist > LEVEL3_MIMIC_CONFIG.followRange;
+    level3EndDragon.facing = gap < 0 ? "left" : "right";
+  } else {
+    level3EndDragonIsMoving = false;
+  }
+
   level3EpilogueLineTimer = 150;
   portalUnlocked = true;
   return;

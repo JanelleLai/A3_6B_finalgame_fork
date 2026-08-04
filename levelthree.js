@@ -64,6 +64,8 @@ let level3BossPathIndex = 0;
 let level3BossPathRecalcTimer = 0;
 let level3BossDefeated = false;
 
+let level3ShowRockTutorial = false; // true right when entering the bird arena, until dismissed
+
 // ------------------------------------------------------------
 // EPILOGUE — plays out in the "end" area once the boss is
 // defeated. Not a fight: dialogue, then a Y/N choice branching
@@ -93,6 +95,8 @@ const LEVEL3_EPILOGUE_CONFIG = {
 };
 
 let level3ChaseWindupTimer = 0; // ADDED
+// near your other epilogue / mimic constants
+const LEVEL3_MIMIC_HYST = TILE_SIZE * 0.15; // ~7.5px tolerance to avoid jitter toggles
 
 // Good-end follow behaviour: the dragon holds still as long as the
 // player is within followRange of its hitbox edge (in either
@@ -428,8 +432,11 @@ level3Boss.y = cy - 2 * TILE_SIZE; // CHANGED — boss now spawns above,
     { x: bird.bounds.x + bird.bounds.w * 0.4, y: bird.bounds.y + bird.bounds.h * 0.75, hasRock: true, respawnTimer: 0 },
   ];
 
+   level3ShowRockTutorial = true; // freezes the fight until the player dismisses this
+
   snapCameraToPlayer();
 }
+
 // ------------------------------------------------------------
 // MAIN UPDATE — called every frame from drawLevelScreen()
 // ------------------------------------------------------------
@@ -444,9 +451,10 @@ function updateLevel3BossFight() {
     level3Boss.state = BOSS3_STATE.DORMANT;
     return; // sleeping, no collision/telegraph/charge logic runs
   }
-
-  // ADDED — bird arena: continuous pursuit instead of charge/telegraph/stun
+ // ADDED — bird arena: continuous pursuit instead of charge/telegraph/stun
   if (level3Phase === LEVEL3_PHASE.FLY) {
+    if (level3ShowRockTutorial) return; // freeze boss/collision/rocks while the popup is up
+
     level3Boss.state = BOSS3_STATE.CHASING;
     updateLevel3BossChase();
     checkLevel3BossPlayerCollision();
@@ -508,6 +516,27 @@ function updateLevel3BossFight() {
 
   checkLevel3BossPlayerCollision();
   updateLevel3Rocks();
+}
+
+//this function is the pop-up that tells players what to do witht eh rocks in place
+function drawLevel3RockTutorial() {
+  if (!level3ShowRockTutorial) return;
+
+  push();
+  noStroke();
+  fill(0, 0, 0, 170);
+  rect(0, 0, width, height);
+
+  textFont("monospace");
+  textAlign(CENTER, CENTER);
+  fill(255);
+  textSize(22);
+  text("Grab rocks and press SPACE to throw", width / 2, height / 2 - 12);
+
+  fill(200);
+  textSize(13);
+  text("Press any key to continue", width / 2, height / 2 + 20);
+  pop();
 }
 
 // ------------------------------------------------------------
@@ -670,7 +699,7 @@ function drawLevel3BossFightWorld() {
     for (const r of thrownRocks) {
       fill(150, 150, 150);
       noStroke();
-      ellipse(r.x, r.y, 14, 14);
+      ellipse(r.x, r.y, 28, 28);
     }
     pop();
 
@@ -746,6 +775,8 @@ function drawLevel3HUD() {
     text("Rock ready — [SPACE] to throw", startX, startY + heartSize + 12);
     pop();
   }
+
+  drawLevel3RockTutorial();
 }
 
 // ADDED — mirrors updateDragon()/recalcDragonPath() from level 2
@@ -879,21 +910,27 @@ function updateLevel3Epilogue() {
   }
 
   if (level3EpilogueState === LEVEL3_EPILOGUE_STATE.MIMIC) {
-    const halfW = level3EndDragon.w / 2;
-    const gap = player.x - level3EndDragon.x;          // signed, dragon -> player
-    const edgeDist = Math.abs(gap) - halfW;             // distance from the dragon's hitbox edge to the player
+  const halfW = level3EndDragon.w / 2;
+  const gap = player.x - level3EndDragon.x;          // signed, dragon -> player
+  const edgeDist = Math.abs(gap) - halfW;            // distance from the dragon's hitbox edge to the player
 
-    // Always faces the player, flipping the instant they cross to the other side.
-    level3EndDragon.facing = gap < 0 ? "left" : "right";
+  // Always faces the player.
+  level3EndDragon.facing = gap < 0 ? "left" : "right";
 
-    if (edgeDist > LEVEL3_MIMIC_CONFIG.followRange) {
-      const dir = Math.sign(gap);
-      level3EndDragon.x += dir * LEVEL3_MIMIC_CONFIG.followSpeed;
-      level3EndDragonIsMoving = true;
-    } else {
-      level3EndDragonIsMoving = false;
-    }
-  }
+  // Hysteresis thresholds to avoid oscillation when the player sits near followRange.
+  const startThreshold = LEVEL3_MIMIC_CONFIG.followRange + LEVEL3_MIMIC_HYST;
+  const stopThreshold  = LEVEL3_MIMIC_CONFIG.followRange - LEVEL3_MIMIC_HYST;
+
+  if (edgeDist > startThreshold) {
+    // definitely too far — move toward the player
+    const dir = Math.sign(gap);
+    level3EndDragon.x += dir * LEVEL3_MIMIC_CONFIG.followSpeed;
+    level3EndDragonIsMoving = true;
+  } else if (edgeDist < stopThreshold) {
+    // definitely close enough — stop moving
+    level3EndDragonIsMoving = false;
+  } // else: within hysteresis band, keep previous level3EndDragonIsMoving value
+}
 }
 
 function drawLevel3EndDragon() {
@@ -903,21 +940,17 @@ function drawLevel3EndDragon() {
   push();
   imageMode(CENTER);
 
-  // Advance this dragon's own animation clock (kept separate from the
-  // shared boss-fight dragonAnimFrame/dragonAnimTimer globals — those
-  // aren't updated once the fight is over, which is why this dragon
-  // used to sit frozen).
+  // Advance this dragon's own animation clock
   level3EndDragonAnimTimer++;
   if (level3EndDragonAnimTimer >= DRAGON_SPRITE.animSpeed) {
     level3EndDragonAnimTimer = 0;
     level3EndDragonAnimFrame = (level3EndDragonAnimFrame + 1) % DRAGON_SPRITE.numFrames;
   }
 
-  // Idling uses the lower half of the sheet (idleLeft/idleRight), moving
-  // (chasing or actively trailing) uses the upper/flying half.
+  const isMoving = !!level3EndDragonIsMoving;
   const row = level3EndDragon.facing === "left"
-    ? (level3EndDragonIsMoving ? DRAGON_SPRITE.rows.flyingLeft : DRAGON_SPRITE.rows.idleLeft)
-    : (level3EndDragonIsMoving ? DRAGON_SPRITE.rows.flyingRight : DRAGON_SPRITE.rows.idleRight);
+    ? (isMoving ? DRAGON_SPRITE.rows.flyingLeft : DRAGON_SPRITE.rows.idleLeft)
+    : (isMoving ? DRAGON_SPRITE.rows.flyingRight : DRAGON_SPRITE.rows.idleRight);
 
   const sx = level3EndDragonAnimFrame * DRAGON_SPRITE.frameWidth;
   const sy = row * DRAGON_SPRITE.frameHeight;
@@ -928,6 +961,14 @@ function drawLevel3EndDragon() {
     image(dragonSheet, level3EndDragon.x, level3EndDragon.y, dw, dh,
           sx, sy, DRAGON_SPRITE.frameWidth, DRAGON_SPRITE.frameHeight);
   }
+
+  // Debug overlay: show frame/row on-screen and log to console once per frame
+  fill(255, 200, 0);
+  textSize(12);
+  textAlign(LEFT, TOP);
+  text(`endDragon frame: ${level3EndDragonAnimFrame}  row: ${row}  moving:${isMoving}`, level3EndDragon.x - 40, level3EndDragon.y - dh/2 - 18);
+  console.log('endDragon debug:', level3EndDragonAnimFrame, row, isMoving);
+
   pop();
 }
 
