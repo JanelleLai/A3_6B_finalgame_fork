@@ -426,6 +426,10 @@ let endbg;
 let fishareaBG2;
 let fishareaOverlay2;
 
+let fishareaBG3;
+// let birdareaBG3;  // PLACEHOLDER — set once a level 3 bird-area background asset exists
+// let endareaBG3;   // PLACEHOLDER — set once a level 3 end-area background asset exists
+
 let fishSheet; //fish sprite sheet
 let birdSheet; //bird sprite sheet
 
@@ -484,6 +488,9 @@ let whirlpoolTiles = []; // [{x,y,w,h}]
 let portalTiles = []; // [{x,y,w,h}] portal/door tiles
 let seaweedTiles = []; // [{x,y,w,h}] world-space rects — slows the fish, doesn't block it
 const SEAWEED_LAYER = "seaweed";
+let safeZoneTiles = []; // [{x,y,w,h}] world-space rects — level 2's "safe zone" layer; reaching one fades out chaseMusic
+const SAFE_ZONE_LAYER = "safe zone";
+let safeZoneReached = false; // one-shot per level, reset in loadLevel()
 const SEAWEED_SLOW_FACTOR = 2.5; // divides moveSpeed — tune to taste for "150% slower"
 const REQUIRED_PORTAL_KEYS = 5; // fallback default, used if a level doesn't define requiredKeys
 let requiredPortalKeys = REQUIRED_PORTAL_KEYS; // set per-level in loadLevel()
@@ -586,15 +593,16 @@ const LEVELS = {
   },
   [LEVEL_THREE]: {
     areas: [
-      { key: "fish", json: "fishArea3" },
+      { key: "fish", json: "fishArea3", bg: "fishareaBG3" },
       {
         key: "bird",
         json: "birdArea3",
-        // bg: 'cavebg2', overlay: 'fishareaOverlay2',
+        // bg: "birdareaBG3", // PLACEHOLDER — set once a level 3 bird-area background asset exists
       },
       {
         key: "end",
         json: "endArea3",
+        // bg: "endareaBG3", // PLACEHOLDER — set once a level 3 end-area background asset exists
       },
     ],
     playerStart: { x: 10 * TILE_SIZE, y: 26 * TILE_SIZE },
@@ -711,6 +719,10 @@ function debugJumpToArea(levelId, areaKey) {
       // its full maxHealth, wrong for a fight that's supposedly already
       // past the swim phase.
       if (level3Boss) level3Boss.hp = 800;
+      // Real gameplay starts this when crossing the fish-arena barrier
+      // (activateLevel3Barrier()) — jumping straight into the bird phase
+      // skips that trigger, so it needs starting explicitly here too.
+      if (chaseMusic && !chaseMusic.isPlaying()) chaseMusic.loop();
     } else if (areaKey === "end") {
       stopAllGameSounds();
       level3BossDefeated = true;
@@ -747,7 +759,14 @@ function debugJumpToArea(levelId, areaKey) {
     }
   }
 
-  keyCollected = debugComputeKeysForTarget(player.x);
+  // Known exception to the positional heuristic below: level 1's fish
+  // checkpoint sits just past a rune that's actually in a different
+  // (bird-height) lane, gated behind a barrier not yet open at that point —
+  // see debugComputeKeysForTarget()'s comment. Hardcoded since a proper fix
+  // needs real jump-physics-aware pathing.
+  keyCollected = levelId === LEVEL_ONE && areaKey === "fish"
+    ? 3
+    : debugComputeKeysForTarget(player.x);
   portalUnlocked = portalIsUnlocked();
 
   player.form = debugAreaFormFor(areaKey);
@@ -771,6 +790,13 @@ function debugWinLevel(levelId) {
   isRespawning = false;
 
   if (levelId === LEVEL_THREE) {
+    // Same issue debugJumpToArea's "end" branch already handles — without
+    // retiring it, the fresh fish-phase boss (from loadLevel above) keeps
+    // attacking the player from the fish arena while they're now in the
+    // end area.
+    stopAllGameSounds();
+    level3BossDefeated = true;
+    level3Boss = null;
     debugTriggerLevel3EpilogueChoice(true);
     return;
   }
@@ -798,6 +824,9 @@ function debugLoseLevel(levelId) {
   isRespawning = false;
 
   if (levelId === LEVEL_THREE) {
+    stopAllGameSounds();
+    level3BossDefeated = true;
+    level3Boss = null;
     debugTriggerLevel3EpilogueChoice(false);
     return;
   }
@@ -949,6 +978,9 @@ function preload() {
   fishareaBG = loadImage("assets/images/fishareaBG.png");
   fishareaOverlay = loadImage("assets/images/fishareaoverlay.png");
   fishareaBG2 = loadImage("assets/images/2fisharea.png");
+  fishareaBG3 = loadImage("assets/images/3fishareabg.png");
+  // birdareaBG3 = loadImage("assets/images/3birdareabg.png"); // PLACEHOLDER — asset doesn't exist yet
+  // endareaBG3 = loadImage("assets/images/3endareabg.png");   // PLACEHOLDER — asset doesn't exist yet
 
   cavebg = loadImage("assets/images/cavebg.png"); //bird area background level 1
   cavebg2 = loadImage("assets/images/2birdarea.png"); //bird area background level 2 
@@ -975,6 +1007,9 @@ function preload() {
   diesound = loadSound("assets/sounds/die.mp3");
   runesound = loadSound("assets/sounds/rune.mp3");
   portalOpeningSound = loadSound("assets/sounds/portalopening.mp3");
+  if (portalOpeningSound) {
+    portalOpeningSound.setVolume(0.2);
+  }
   walkingsound = loadSound("assets/sounds/walking.mp3");
   flappingsound = loadSound("assets/sounds/flappingbird.mp3"); //level1
   birdflapsound = loadSound("assets/sounds/birdflap.mp3"); //level2
@@ -1013,6 +1048,9 @@ function preload() {
     fishArea3,
   birdArea3,
   endArea3,
+  fishareaBG3,
+  // birdareaBG3, // PLACEHOLDER — asset doesn't exist yet
+  // endareaBG3,  // PLACEHOLDER — asset doesn't exist yet
   };
 }
 
@@ -1124,6 +1162,8 @@ function loadLevel(levelId) {
   portalTiles = [];
   waterTiles = [];
   seaweedTiles = [];
+  safeZoneTiles = [];
+  safeZoneReached = false;
   windZones = [];
   activeCheckpointIndex = -1;
   lastCheckpoint = null;
@@ -1306,7 +1346,7 @@ function buildLevel1WindZones(levelAreas) {
   // Zone 2: fish -> human (launch zone)
   const zone2ShiftUp = 5 * TILE_SIZE;
   zones.push({
-    x: fish.bounds.x + fish.bounds.w - 6 * TILE_SIZE,
+    x: fish.bounds.x + fish.bounds.w - 16 * TILE_SIZE,
     y: fish.bounds.y - zone2ShiftUp,
     w: 6 * TILE_SIZE,
     h: fish.bounds.h + end.bounds.h,
@@ -1468,6 +1508,7 @@ function drawLevelScreen() {
         checkPortalEntrance();
         checkHazardCollisions();
         checkCheckpoints();
+        checkSafeZone();
         
         if (currentScreen === LEVEL_THREE) {
   updateLevel3BossFight();
@@ -1784,7 +1825,9 @@ function updateHumanBGSound() {
 function updateBirdBGSound() {
   if (!birdBGsound) return;
 
-  const shouldPlay = player.form === FORM_BIRD;
+  // Level 3's bird form is the boss-fight phase — chaseMusic plays there
+  // instead, so this generic ambience shouldn't compete with it.
+  const shouldPlay = player.form === FORM_BIRD && currentScreen !== LEVEL_THREE;
 
   if (shouldPlay) {
     if (!birdBGsound.isPlaying()) {
@@ -2065,6 +2108,7 @@ function processJsonLayers(
     const isPortal = layer.name === PORTAL_LAYER;
     const isDragonSpawn = layer.name === DRAGON_SPAWN_LAYER;
   const isBat = layer.name === BAT_LAYER;
+    const isSafeZone = layer.name === SAFE_ZONE_LAYER;
 
     if (
       !isSolid &&
@@ -2076,7 +2120,8 @@ function processJsonLayers(
       !isSeaweed &&
       !isPortal &&
       !isDragonSpawn &&
-      !isBat
+      !isBat &&
+      !isSafeZone
     )
       continue;
 
@@ -2101,6 +2146,7 @@ function processJsonLayers(
       else if (isPortal) portalTiles.push(rect);
       else if (isDragonSpawn) dragonSpawnTiles.push(rect);
       else if (isBat) batSpawnTiles.push(rect);
+      else if (isSafeZone) safeZoneTiles.push(rect);
     }
   }
 }
@@ -3045,7 +3091,7 @@ function unlockPortal() {
   portalUnlocked = portalIsUnlocked();
   if (portalUnlocked && !portalOpeningPlayed) {
     if (portalOpeningSound) portalOpeningSound.play();
-    showFadeMessage("A portal has opened somewhere...");
+    showFadeMessage("A portal has opened...");
     portalOpeningPlayed = true;
   }
 }
@@ -3103,6 +3149,26 @@ function checkPortalEntrance() {
       gameState = STATE_WIN;
       console.log("Portal entered with enough runes.");
       return;
+    }
+  }
+}
+
+// ------------------------------------------------------------
+// checkSafeZone()
+// Level 2's "safe zone" tiles (fish area) — reaching one fades
+// chaseMusic out instead of letting it keep playing once the
+// dragon chase is effectively over.
+// ------------------------------------------------------------
+function checkSafeZone() {
+  if (safeZoneReached || !safeZoneTiles || safeZoneTiles.length === 0) return;
+
+  for (const t of safeZoneTiles) {
+    const overlapsX = player.x + player.r > t.x && player.x - player.r < t.x + t.w;
+    const overlapsY = player.y + player.r > t.y && player.y - player.r < t.y + t.h;
+    if (overlapsX && overlapsY) {
+      safeZoneReached = true;
+      if (chaseMusic && chaseMusic.isPlaying()) chaseMusic.fade(0, 2);
+      break;
     }
   }
 }
@@ -3355,10 +3421,13 @@ function drawTiles(area) {
     if (layer.name === "background") continue;
     if (layer.name === BAT_LAYER) continue;
     if (layer.name === DRAGON_SPAWN_LAYER) continue;
+   if (layer.name === "safe zone") continue;
+
     if (layer.name === "fish spawn") continue;
     if (layer.name === "bird spawn") continue; // marker layer, position only
     if (layer.name === "stone") continue; // marker layer — actual pedestals drawn elsewhere
     if (layer.name === "human spawn") continue; // marker layer, position only
+    if (layer.name === SAFE_ZONE_LAYER) continue; // trigger zone, not visible terrain
     if (layer.name === WHIRLPOOL_LAYER) {
       drawWhirlpoolLayer(layer.tiles, mapXOffset, mapYOffset);
       continue;
@@ -3887,6 +3956,11 @@ function keyPressed() {
 } else if (gameState === STATE_WIN && currentScreen === LEVEL_TWO && key === "Enter") {
     goToScreen(LEVEL_THREE);
     return;
+} else if (gameState === STATE_OVER && currentScreen === LEVEL_THREE && key === "Enter") {
+    // Caught after choosing N — retry from the start of the end area.
+    gameState = STATE_PLAY;
+    initLevel3Epilogue();
+    return;
 }
 
 //yes and no in epilogue dialogue
@@ -3910,6 +3984,7 @@ if (currentScreen === LEVEL_THREE && level3EpilogueState === LEVEL3_EPILOGUE_STA
     const edgeDist = Math.abs(gap) - halfW;
     level3EndDragonIsMoving = edgeDist > LEVEL3_MIMIC_CONFIG.followRange;
     level3EndDragon.facing = gap < 0 ? "left" : "right";
+    level3MimicTargetY = level3EndDragon.y;
   } else {
     level3EndDragonIsMoving = false;
   }

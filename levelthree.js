@@ -116,6 +116,7 @@ const LEVEL3_MIMIC_CONFIG = {
 };
 
 let level3EndDragonIsMoving = false; // drives idle (bottom half) vs flying (top half) sprite rows
+let level3MimicTargetY = 0; // ratchets upward only, as the player climbs to solid ground higher than its last value — see MIMIC vertical follow
 let level3EndDragonChasing = false;  // hysteresis "intent to chase" flag, decoupled from animation
 
 // Persistent (not re-declared per-frame) animation state for the
@@ -351,7 +352,7 @@ function damageLevel3Boss(amount) {
   }
 
   if (level3Phase === LEVEL3_PHASE.SWIM && level3Boss.hp <= 800) {
-    startLevel3Transition("placeholder text", enterLevel3FlyPhase);
+    startLevel3Transition("Let's change up the scenery.", enterLevel3FlyPhase);
     return;
   }
 
@@ -359,7 +360,7 @@ function damageLevel3Boss(amount) {
     stopAllGameSounds();
     level3BossDefeated = true;
     level3Boss = null;
-    startLevel3Transition("placeholder text2", moveToLevel3EndArea);
+    startLevel3Transition("Nothing stays the same. Can you adapt?", moveToLevel3EndArea);
     return;
   }
 
@@ -567,6 +568,8 @@ function updateLevel3BossFight() {
   if (level3Boss.state === BOSS3_STATE.AIMING) {
     level3Boss.targetX = player.x;
     level3Boss.targetY = player.y;
+    //dragon facing the fish when aiming
+    level3Boss.facing = (player.x < level3Boss.x) ? "left" : "right";
 
     level3Boss.timer--;
     if (level3Boss.timer <= 0) {
@@ -574,6 +577,9 @@ function updateLevel3BossFight() {
       const dy = level3Boss.targetY - level3Boss.y;
       const d = Math.sqrt(dx * dx + dy * dy) || 1;
 
+      //adding the anger state of dragon
+      if (dragonGrowl) dragonGrowl.play();
+      
       level3Boss.vx = (dx / d) * LEVEL3_BOSS_CONFIG.chargeSpeed;
       level3Boss.vy = (dy / d) * LEVEL3_BOSS_CONFIG.chargeSpeed;
       level3Boss.facing = dx < 0 ? "left" : "right";
@@ -593,7 +599,6 @@ function updateLevel3BossFight() {
   level3Boss.vy = 0;
   level3Boss.state = BOSS3_STATE.STUNNED;
   level3Boss.timer = LEVEL3_BOSS_CONFIG.stunFrames;
-  dragonGrowl.play();
 
   // Wall-slam damage only applies in the fish arena (phase 1 / SWIM).
   if (level3Phase === LEVEL3_PHASE.SWIM) {
@@ -664,7 +669,7 @@ function updateLevel3Rocks() {
 
     if (dist(r.x, r.y, level3Boss.x, level3Boss.y) < ROCK_CONFIG.hitRadius) {
       damageLevel3Boss(ROCK_CONFIG.damage);
-      if (dragonGrowl) dragonGrowl.play();
+      if (dragonHurt) dragonHurt.play();
       thrownRocks.splice(i, 1);
       continue;
     }
@@ -707,6 +712,18 @@ function playerTakeDragonHit() {
 
 function restartLevel3Stage() {
   if (chaseMusic && chaseMusic.isPlaying()) chaseMusic.stop(); // don't let it linger through a reset
+
+  if (level3Phase === LEVEL3_PHASE.FLY) {
+    // Dying in the bird phase should retry just that phase — respawn at
+    // its own spawn point with a fresh boss, not the whole fight reset
+    // back to the fish phase.
+    enterLevel3FlyPhase();
+    if (level3Boss) level3Boss.hp = 800;
+    player.health = player.maxHealth; // was missing — health stayed depleted across this retry
+    if (chaseMusic && !chaseMusic.isPlaying()) chaseMusic.loop();
+    return;
+  }
+
   initLevel3BossFight(); // full reset: boss HP, phase, barrier, pedestals, rocks
 
   // Override player position — always the last fish-area checkpoint reached,
@@ -768,21 +785,40 @@ function drawLevel3BossFightWorld() {
   push();
   imageMode(CENTER);
 
-  // Telegraph — a flashing line toward the locked-in charge target,
+  // DRAGON AIMS AT FISH 
   // so the player has a fair read on where to dodge.
   if (level3Boss.state === BOSS3_STATE.AIMING && frameCount % 20 < 10) {
-    stroke(255, 60, 60, 160);
-    strokeWeight(3);
-    line(level3Boss.x, level3Boss.y, level3Boss.targetX, level3Boss.targetY);
-    noFill();
-    ellipse(level3Boss.x, level3Boss.y, level3Boss.w * 1.4, level3Boss.h * 1.4);
-  }
+  stroke(255, 60, 60, 160);
+  strokeWeight(3);
 
-  dragonAnimTimer++;
-  if (dragonAnimTimer >= DRAGON_SPRITE.animSpeed) {
-    dragonAnimTimer = 0;
-    dragonAnimFrame = (dragonAnimFrame + 1) % DRAGON_SPRITE.numFrames;
-  }
+  // existing telegraph line
+  line(level3Boss.x, level3Boss.y, level3Boss.targetX, level3Boss.targetY);
+
+  noFill();
+
+  //ellipse(level3Boss.x, level3Boss.y, level3Boss.w * 1.4, level3Boss.h * 1.4);
+
+  // NEW — crosshair-style aim reticle around the fish
+  const rOuter = TILE_SIZE * 2.2;
+  const rInner = TILE_SIZE * 0.6;
+
+  // outer circle
+  ellipse(player.x, player.y, rOuter, rOuter);
+  // inner circle
+  ellipse(player.x, player.y, rInner, rInner);
+
+  // four tick marks
+  const tick = TILE_SIZE * 0.4;
+  line(player.x - tick, player.y, player.x - tick * 0.5, player.y);
+  line(player.x + tick, player.y, player.x + tick * 0.5, player.y);
+  line(player.x, player.y - tick, player.x, player.y - tick * 0.5);
+  line(player.x, player.y + tick, player.x, player.y + tick * 0.5);
+
+  // small center cross
+  line(player.x - 4, player.y, player.x + 4, player.y);
+  line(player.x, player.y - 4, player.x, player.y + 4);
+}
+
 
   const row =
     level3Boss.facing === "left"
@@ -845,22 +881,34 @@ function drawLevel3HUD() {
     by + barH / 2,
   );
   pop();
-}
 
-  // Player hearts
-  const heartSize = 22;
-  const heartPad = 4;
-  const startX = 16;
-  const startY = 16;
+  // Player HP bar — bottom center, shorter than the boss bar (which is
+  // 300 wide) but same style/opacity so it's equally visible. Replaces the
+  // old heart icons; player.maxHealth is 5, so each hit (health--) is
+  // exactly 20 of this bar's 100.
+  const hpBarW = 200;
+  const hpBarH = 16;
+  const hpBx = width / 2 - hpBarW / 2;
+  const hpBy = height - 70;
+  const hpValue = max(player.health, 0) * 20;
 
   push();
   noStroke();
-  for (let i = 0; i < player.maxHealth; i++) {
-    const hx = startX + i * (heartSize + heartPad);
-    fill(i < player.health ? color(220, 50, 50) : color(70, 70, 70));
-    ellipse(hx + heartSize / 2, startY + heartSize / 2, heartSize, heartSize);
-  }
+  fill(0, 0, 0, 150);
+  rect(hpBx - 4, hpBy - 4, hpBarW + 8, hpBarH + 8, 6);
+  fill(60, 60, 60);
+  rect(hpBx, hpBy, hpBarW, hpBarH, 4);
+
+  fill(50, 200, 50);
+  rect(hpBx, hpBy, hpBarW * constrain(hpValue / 100, 0, 1), hpBarH, 4);
+
+  fill(255);
+  textAlign(CENTER, CENTER);
+  textFont("monospace");
+  textSize(11);
+  text(`HP  ${hpValue} / 100`, hpBx + hpBarW / 2, hpBy + hpBarH / 2);
   pop();
+}
 
   // Carried-rock indicator (phase 2) — bottom of screen, same size/position
   // as the portal fade message (drawFadeMessage() in sketch.js) so it's
@@ -1053,6 +1101,7 @@ function debugTriggerLevel3EpilogueChoice(win) {
       const edgeDist = Math.abs(gap) - halfW;
       level3EndDragonIsMoving = edgeDist > LEVEL3_MIMIC_CONFIG.followRange;
       level3EndDragon.facing = gap < 0 ? "left" : "right";
+      level3MimicTargetY = level3EndDragon.y;
     }
     level3EpilogueLineTimer = 150;
     portalUnlocked = true;
@@ -1146,16 +1195,21 @@ function updateLevel3Epilogue() {
     }
   }
 
-  // Vertical: always ease toward the player's height, independent of the
-  // horizontal follow-range logic above — a staircase changes player.y
-  // without necessarily crossing the horizontal follow/stop thresholds,
-  // so this can't be gated on level3EndDragonChasing the way x is.
-  //const dy = player.y - level3EndDragon.y;
-  //const yStep = Math.min(LEVEL3_MIMIC_CONFIG.followSpeed, Math.abs(dy));
-  //if (yStep > 0.01) {
-   // level3EndDragon.y += Math.sign(dy) * yStep;
-  //  moved = true;
-  //}
+  // Vertical: only RISES, and only once the player has actually landed on
+  // solid ground higher than the last step it tracked — not while they're
+  // mid-air on a jump arc, which would otherwise bounce the dragon up and
+  // back down every hop instead of just following real elevation changes
+  // (e.g. climbing a staircase).
+  if (player.isGrounded) {
+    const candidateY = player.y - 2 * TILE_SIZE;
+    if (candidateY < level3MimicTargetY) level3MimicTargetY = candidateY;
+  }
+  const dy = level3MimicTargetY - level3EndDragon.y;
+  const yStep = Math.min(LEVEL3_MIMIC_CONFIG.followSpeed, Math.abs(dy));
+  if (yStep > 0.01) {
+    level3EndDragon.y += Math.sign(dy) * yStep;
+    moved = true;
+  }
 
   level3EndDragonIsMoving = moved; // reflects actual movement, never "stuck"
 }
@@ -1243,7 +1297,7 @@ function drawLevel3DialogueUI() {
     // line finishes rather than talking over it.
     if (level3EpilogueLineTimer === 0 && !portalOpeningPlayed) {
       if (portalOpeningSound) portalOpeningSound.play();
-      showFadeMessage("A portal has opened somewhere...");
+      showFadeMessage("A portal has opened...");
       portalOpeningPlayed = true;
     }
   }
@@ -1263,5 +1317,8 @@ function drawLevel3BadEndScreen() {
   fill(255);
   textSize(14);
   text("The dragon was right. You cannot win in brute combat.", width / 2, height / 2 + 20);
+  fill(200);
+  textSize(13);
+  text("Press Enter to retry", width / 2, height / 2 + 50);
   pop();
 }
