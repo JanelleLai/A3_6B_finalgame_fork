@@ -627,7 +627,7 @@ function drawLevel3RockTutorial() {
   textAlign(CENTER, CENTER);
   fill(255);
   textSize(22);
-  text("Grab rocks and press E to throw", width / 2, height / 2 - 12);
+  text("Grab rocks and press E to throw at the dragon (auto-aimed).", width / 2, height / 2 - 12);
 
   fill(200);
   textSize(13);
@@ -871,7 +871,7 @@ function drawLevel3HUD() {
     textAlign(CENTER, CENTER);
     textFont("monospace");
     textSize(16);
-    text("Rock ready — [E] to throw", width / 2, height - 40);
+    text("Homing rock ready — [E] to throw", width / 2, height - 40);
     pop();
   }
 
