@@ -329,9 +329,11 @@ let dragonTriggerRuneKey = null; // getWorldTileKey() of the specific rune that 
 let dragonTriggerRunePos = null; // {x,y} world center of that rune — kept for the debug overlay below
 let chaseMusic; 
 let dragonGrowl;
+let dragonGrowl2;
 let dragonScreech;
 let dragonHurt;
 let dragonHiss;
+let dragonHiss2;
 
 let chaseCamZoomTarget = 0.8; // camZoom eases toward this every frame (0.8 idle, 0.7 chasing)
 let level3CamZoomTarget = 0.8; 
@@ -408,6 +410,8 @@ let spike2Img;
 let spike3Img;
 let spike4Img;
 let spikeImg2;
+let spike1Img3;
+let spike2Img3;
 let waterSurfaceImg;
 let portalClosedImg;
 let portalOpenImg;
@@ -441,6 +445,7 @@ let birdSheet; //bird sprite sheet
 let diesound;
 let runesound;
 let portalOpeningSound;
+let portalChime;
 let walkingsound;
 let flappingsound;
 let fishareasound;
@@ -975,6 +980,8 @@ function preload() {
   spike3Img = loadImage("assets/images/spike3.png");
   spike4Img = loadImage("assets/images/spike4.png");
   spikeImg2 = loadImage("assets/images/2Spike.png");
+  spike1Img3 = loadImage("assets/images/3spike1.png");
+  spike2Img3 = loadImage("assets/images/3spike2.png");
   barrierImg = loadImage("assets/images/barrier.png");
 
   waterSurfaceImg = loadImage("assets/images/watersurface.png");
@@ -1013,6 +1020,8 @@ function preload() {
   if (portalOpeningSound) {
     portalOpeningSound.setVolume(0.2);
   }
+  portalChime = loadSound("assets/sounds/portalchime.mp3");
+  
   walkingsound = loadSound("assets/sounds/walking.mp3");
   flappingsound = loadSound("assets/sounds/flappingbird.mp3"); //level1
   birdflapsound = loadSound("assets/sounds/birdflap.mp3"); //level2
@@ -1027,9 +1036,11 @@ function preload() {
     chaseMusic.setVolume(0.25);
   }
   dragonGrowl = loadSound("assets/sounds/dragongrowl.mp3");
+  dragonGrowl2 = loadSound("assets/sounds/dragongrowl2.mp3");
   dragonScreech = loadSound("assets/sounds/dragonScreech.mp3");
   dragonHurt = loadSound("assets/sounds/dragonHurt.mp3");
   dragonHiss = loadSound("assets/sounds/dragonHiss.mp3");
+  dragonHiss2 = loadSound("assets/sounds/dragonHiss2.mp3");
   batsound = loadSound("assets/sounds/bats.mp3");
 
 
@@ -1545,7 +1556,12 @@ drawLevel3EndDragon();
 
   const fish = findArea(levelAreas, "fish");
   if (fish && fish.overlay) {
-    image(fish.overlay, fish.bounds.x, fish.bounds.y, fish.bounds.w, 800);
+    // Right edge of the overlay should land exactly on the left edge of the
+    // ~10-tile-long sand/rock wall on the right side of the fish area
+    // (local tile x=42 in data/fisharea.json), not stretch across the
+    // whole area.
+    const overlayW = 42 * TILE_SIZE;
+    image(fish.overlay, fish.bounds.x, fish.bounds.y, overlayW, 800);
   }
 
   drawDragonDebugHitbox();
@@ -1815,7 +1831,15 @@ function checkWaterTransform() {
 function updateHumanBGSound() {
   if (!humanBGsound) return;
 
-  const shouldPlay = player.form === FORM_HUMAN;
+  // Level 3's epilogue keeps the player in human form throughout — the bad
+  // end (chasing/dead) should stay on chaseMusic, not have this fight back
+  // in every frame right after the N-choice explicitly stops it.
+  const inLevel3EpilogueOverride =
+    currentScreen === LEVEL_THREE &&
+    (level3EpilogueState === LEVEL3_EPILOGUE_STATE.CHASING ||
+      level3EpilogueState === LEVEL3_EPILOGUE_STATE.DEAD);
+
+  const shouldPlay = player.form === FORM_HUMAN && !inLevel3EpilogueOverride;
 
   if (shouldPlay) {
     if (!humanBGsound.isPlaying()) {
@@ -1928,8 +1952,11 @@ function stopAllGameSounds() {
     diesound,
     chaseMusic,
     dragonGrowl,
+    dragonGrowl2,
     dragonScreech,
     dragonHurt,
+    dragonHiss,
+    dragonHiss2,
     batsound,
   ];
   for (const s of sounds) {
@@ -3099,6 +3126,7 @@ function unlockPortal() {
   portalUnlocked = portalIsUnlocked();
   if (portalUnlocked && !portalOpeningPlayed) {
     if (portalOpeningSound) portalOpeningSound.play();
+    if (portalChime) portalChime.play();
     showFadeMessage("A portal has opened...");
     portalOpeningPlayed = true;
   }
@@ -3477,7 +3505,7 @@ function drawTiles(area) {
           );
         }
       } else if (area.key === "fish" && layer.name === "sand") {
-        const sandSprite = currentScreen === LEVEL_TWO && sand2Img ? sand2Img : sandImg;
+        const sandSprite = (currentScreen === LEVEL_TWO || currentScreen === LEVEL_THREE) && sand2Img ? sand2Img : sandImg;
         sandSprite
           ? image(sandSprite, x, y, TILE_SIZE, TILE_SIZE)
           : (fill(tileColor(layer.name, t.id)),
@@ -3486,7 +3514,7 @@ function drawTiles(area) {
         // This "rock" layer is the fish area's actual ground/floor tiles
         // (sandrockImg) — the dominant "sand" you actually see; the
         // separately-named "sand" layer above is a sparser decorative one.
-        const rockSprite = currentScreen === LEVEL_TWO && sand2Img ? sand2Img : sandrockImg;
+        const rockSprite = (currentScreen === LEVEL_TWO || currentScreen === LEVEL_THREE) && sand2Img ? sand2Img : sandrockImg;
         rockSprite
           ? image(rockSprite, x, y, TILE_SIZE, TILE_SIZE)
           : (fill(tileColor(layer.name, t.id)),
@@ -3542,7 +3570,7 @@ function drawTiles(area) {
           : (fill(tileColor(layer.name, t.id)),
             rect(x, y, TILE_SIZE, TILE_SIZE));
       } else if (currentScreen === LEVEL_THREE && area.key === "fish" && layer.name === "spikes") {
-        const spikeImages = [spike1Img, spike2Img, spike3Img, spike4Img];
+        const spikeImages = [spike1Img3, spike2Img3];
         const rockAbove = rockPositions.has(`${t.x},${t.y - 1}`);
         const rockBelow = rockPositions.has(`${t.x},${t.y + 1}`);
         const rockLeft = rockPositions.has(`${t.x - 1},${t.y}`);
@@ -4004,6 +4032,9 @@ if (currentScreen === LEVEL_THREE && level3EpilogueState === LEVEL3_EPILOGUE_STA
   if (key === "n" || key === "N") {
     level3ChaseWindupTimer = 0;
     level3EpilogueState = LEVEL3_EPILOGUE_STATE.CHASING;
+    if (humanBGsound && humanBGsound.isPlaying()) humanBGsound.stop();
+    if (chaseMusic && !chaseMusic.isPlaying()) chaseMusic.loop();
+    if (dragonGrowl2) dragonGrowl2.play();
     return;
   }
   return;

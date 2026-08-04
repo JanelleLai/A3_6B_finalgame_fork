@@ -35,6 +35,7 @@ const LEVEL3_BOSS_CONFIG = {
 };
 
 const PLAYER_HIT_INVINCIBLE_FRAMES = 90;
+const LEVEL3_BOSS_HIT_FLASH_FRAMES = PLAYER_HIT_INVINCIBLE_FRAMES; // same duration and blink cadence as the player's invincibility flash
 
 // ------------------------------------------------------------
 // PHASE 2 — rock-throwing config
@@ -69,6 +70,7 @@ let level3BossPrevY = 0;
 let level3BossNudging = false;
 let level3BossNudgeTargetY = 0;
 let level3BossDefeated = false;
+let level3ChargeSoundIndex = 0; // cycles dragonScreech/dragonGrowl2 each charge
 
 let level3ShowRockTutorial = false; // true right when entering the bird arena, until dismissed
 
@@ -184,6 +186,7 @@ level3EndDragonAnimTimer = 0;
     targetX: arenaX,
     targetY: arenaY,
     triggerX,
+    hitFlashTimer: 0, // ticks down after a hit — see drawLevel3BossFightWorld()'s blink
   };
 
   // Gate at the tunnel mouth — solid once the boss wakes, so the player
@@ -341,6 +344,8 @@ function checkLevel3BossPlayerCollision() {
 // the phase-2 threshold check only lives in one place. Used by both
 // the wall-hit charge damage and thrown-rock hits.
 // ------------------------------------------------------------
+let level3DamageSoundIndex = 0; // alternates dragonHiss/dragonHurt/dragonHiss2 on every hit, fish or bird area alike
+
 function damageLevel3Boss(amount) {
   level3Boss.hp = Math.max(0, level3Boss.hp - amount);
 
@@ -350,6 +355,15 @@ function damageLevel3Boss(amount) {
     level3Boss = null;
     return;
   }
+
+  // Only for hits the boss survives — a killing blow goes straight to
+  // stopAllGameSounds() above instead, so there's no point starting (and
+  // immediately cutting off) another sound on top of that.
+  level3Boss.hitFlashTimer = LEVEL3_BOSS_HIT_FLASH_FRAMES;
+  const damageSounds = [dragonHiss, dragonHurt, dragonHiss2];
+  const damageSound = damageSounds[level3DamageSoundIndex % damageSounds.length];
+  if (damageSound) damageSound.play();
+  level3DamageSoundIndex++;
 
   if (level3Phase === LEVEL3_PHASE.SWIM && level3Boss.hp <= 800) {
     startLevel3Transition("Let's change up the scenery.", enterLevel3FlyPhase);
@@ -385,6 +399,9 @@ function startLevel3Transition(text, onSwap) {
   level3TransitionText = text;
   level3TransitionDidSwap = false;
   level3TransitionOnSwap = onSwap;
+  // White-flash transitions keep the original dragonGrowl — dragonGrowl2
+  // replaced it everywhere else (charging, N-choice attack).
+  if (dragonGrowl) dragonGrowl.play();
 }
 
 function updateLevel3Transition() {
@@ -540,6 +557,8 @@ function moveToLevel3BirdArena() {
 function updateLevel3BossFight() {
   if (!level3Boss || currentScreen !== LEVEL_THREE || gameState !== STATE_PLAY)
     return;
+
+  if (level3Boss.hitFlashTimer > 0) level3Boss.hitFlashTimer--;
   level3CamZoomTarget = playerInFishSpawn() ? 0.8 : 0.6; // ADDED to zoom out for the boss arena, but not while the player is still in the fish spawn
 
   updateLevel3BarrierGate();
@@ -577,9 +596,12 @@ function updateLevel3BossFight() {
       const dy = level3Boss.targetY - level3Boss.y;
       const d = Math.sqrt(dx * dx + dy * dy) || 1;
 
-      //adding the anger state of dragon
-      if (dragonHiss) dragonHiss.play();
-      
+      //adding the anger state of dragon — alternate between the roar sounds each charge
+      const chargeSounds = [dragonScreech, dragonGrowl2];
+      const chargeSound = chargeSounds[level3ChargeSoundIndex % chargeSounds.length];
+      if (chargeSound) chargeSound.play();
+      level3ChargeSoundIndex++;
+
       level3Boss.vx = (dx / d) * LEVEL3_BOSS_CONFIG.chargeSpeed;
       level3Boss.vy = (dy / d) * LEVEL3_BOSS_CONFIG.chargeSpeed;
       level3Boss.facing = dx < 0 ? "left" : "right";
@@ -632,11 +654,14 @@ function drawLevel3RockTutorial() {
   textAlign(CENTER, CENTER);
   fill(255);
   textSize(22);
-  text("Grab rocks and press E to throw at the dragon (auto-aimed).", width / 2, height / 2 - 12);
+  // Line 1
+text("Grab rocks and press E", width / 2, height / 2 - 20);
+// Line 2
+text("to throw at the dragon (auto-aimed).", width / 2, height / 2 + 10);
 
   fill(200);
   textSize(13);
-  text("Press any key to continue", width / 2, height / 2 + 20);
+  text("Press any key to continue", width / 2, height / 2 + 35);
   pop();
 }
 
@@ -669,7 +694,6 @@ function updateLevel3Rocks() {
 
     if (dist(r.x, r.y, level3Boss.x, level3Boss.y) < ROCK_CONFIG.hitRadius) {
       damageLevel3Boss(ROCK_CONFIG.damage);
-      if (dragonHurt) dragonHurt.play();
       thrownRocks.splice(i, 1);
       continue;
     }
@@ -830,7 +854,12 @@ function drawLevel3BossFightWorld() {
   const dw = DRAGON_SPRITE.frameWidth * DRAGON_SPRITE.scale;
   const dh = DRAGON_SPRITE.frameHeight * DRAGON_SPRITE.scale;
 
-  if (dragonSheet) {
+  // Blink off every other 6-frame block while hitFlashTimer is running —
+  // same cadence as the player's own invincibility flash in drawPlayer().
+  const bossFlashedOut =
+    level3Boss.hitFlashTimer > 0 && floor(level3Boss.hitFlashTimer / 6) % 2 === 0;
+
+  if (dragonSheet && !bossFlashedOut) {
     image(
       dragonSheet,
       level3Boss.x,
@@ -1082,6 +1111,7 @@ function initLevel3Epilogue() {
 function playPortalOpeningSoundOnce() {
   if (portalUnlocked && !portalOpeningPlayed) {
     if (portalOpeningSound) portalOpeningSound.play();
+    if (portalChime) portalChime.play();
     showFadeMessage("A portal has opened somewhere...");
     portalOpeningPlayed = true;
   }
@@ -1090,8 +1120,40 @@ function playPortalOpeningSoundOnce() {
 // DEBUG — sets up the epilogue (creating level3EndDragon etc. via
 // initLevel3Epilogue()) and immediately applies the same branch the real
 // Y/N keypress handler (sketch.js, LEVEL3_EPILOGUE_STATE.CHOICE) would.
+// Solid tile's top edge directly above x/nearY, closest to nearY — used to
+// re-ground the player after a debug teleport moves them sideways across
+// terrain of a different height. Picking the tile nearest nearY (rather than
+// the column's global topmost tile) avoids snapping to an unrelated tile
+// far away, like a cave ceiling higher up the same column.
+function findGroundYAt(x, nearY) {
+  let best = null;
+  let bestDist = Infinity;
+  for (const t of solidTiles) {
+    if (x >= t.x && x < t.x + t.w) {
+      const d = Math.abs(t.y - nearY);
+      if (d < bestDist) { bestDist = d; best = t.y; }
+    }
+  }
+  return best;
+}
+
 function debugTriggerLevel3EpilogueChoice(win) {
   initLevel3Epilogue();
+
+  // Debug win/lose should drop the player where they'd actually be
+  // talking to the dragon (within dialogue range), not all the way back
+  // at "human spawn" — same side of the dragon they'd approach from.
+  // "human spawn" and "dragon spawn" can sit at different ground heights,
+  // so re-ground the player at the new x rather than keeping human spawn's y.
+  if (level3EndDragon) {
+    const halfW = level3EndDragon.w / 2;
+    const talkEdgeDist = LEVEL3_MIMIC_CONFIG.followRange - TILE_SIZE;
+    const side = player.x < level3EndDragon.x ? -1 : 1;
+    player.x = level3EndDragon.x + side * (halfW + talkEdgeDist);
+
+    const groundY = findGroundYAt(player.x, level3EndDragon.y);
+    if (groundY !== null) player.y = groundY - player.r;
+  }
 
   if (win) {
     level3EpilogueState = LEVEL3_EPILOGUE_STATE.MIMIC;
@@ -1108,6 +1170,9 @@ function debugTriggerLevel3EpilogueChoice(win) {
   } else {
     level3ChaseWindupTimer = 0;
     level3EpilogueState = LEVEL3_EPILOGUE_STATE.CHASING;
+    if (humanBGsound && humanBGsound.isPlaying()) humanBGsound.stop();
+    if (chaseMusic && !chaseMusic.isPlaying()) chaseMusic.loop();
+    if (dragonGrowl2) dragonGrowl2.play();
   }
 }
 
@@ -1297,6 +1362,8 @@ function drawLevel3DialogueUI() {
     // line finishes rather than talking over it.
     if (level3EpilogueLineTimer === 0 && !portalOpeningPlayed) {
       if (portalOpeningSound) portalOpeningSound.play();
+      if (portalChime) portalChime.play();
+  
       showFadeMessage("A portal has opened...");
       portalOpeningPlayed = true;
     }
