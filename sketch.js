@@ -920,14 +920,105 @@ function loadLevel(levelId) {
    player.noiseLevel = 0;
   playerStart = { ...def.playerStart };
 
-  camX = constrain(player.x - width / 2, 0, WORLD_W - width);
-  camY = constrain(player.y - height / 2, 0, WORLD_H - height);
+  snapCameraToPlayer();
   gameState = STATE_PLAY;
 }
 
 
 function findArea(levelAreas, key) {
   return levelAreas.find((a) => a.key === key);
+}
+
+// ------------------------------------------------------------
+// Camera-clamp helpers — the camera should never show past an edge
+// of the level that isn't backed by another area, but shouldn't stop
+// at the seam BETWEEN two areas that sit right next to each other
+// (e.g. bird -> fish in levels 1/2) unless that level wants strict
+// per-area clamping (level 3, whose areas are separate arenas even
+// though they happen to sit side-by-side in world space).
+// ------------------------------------------------------------
+function getAreaAt(px, py) {
+  for (const area of levelAreas) {
+    if (
+      px >= area.bounds.x && px < area.bounds.x + area.bounds.w &&
+      py >= area.bounds.y && py < area.bounds.y + area.bounds.h
+    ) {
+      return area;
+    }
+  }
+  return null;
+}
+
+const AREA_EDGE_EPS = 2; // px tolerance for treating two bounds as "touching"
+
+// Returns which sides of `area` are bordered by another area (and so
+// shouldn't be clamped) based purely on geometry — does two areas'
+// edges touch, with overlapping range on the perpendicular axis.
+function getAreaOpenEdges(area) {
+  const edges = { left: false, right: false, top: false, bottom: false };
+  for (const other of levelAreas) {
+    if (other === area) continue;
+
+    const vOverlap =
+      Math.min(area.bounds.y + area.bounds.h, other.bounds.y + other.bounds.h) -
+      Math.max(area.bounds.y, other.bounds.y);
+    if (vOverlap > AREA_EDGE_EPS) {
+      if (Math.abs(other.bounds.x - (area.bounds.x + area.bounds.w)) < AREA_EDGE_EPS) edges.right = true;
+      if (Math.abs((other.bounds.x + other.bounds.w) - area.bounds.x) < AREA_EDGE_EPS) edges.left = true;
+    }
+
+    const hOverlap =
+      Math.min(area.bounds.x + area.bounds.w, other.bounds.x + other.bounds.w) -
+      Math.max(area.bounds.x, other.bounds.x);
+    if (hOverlap > AREA_EDGE_EPS) {
+      if (Math.abs(other.bounds.y - (area.bounds.y + area.bounds.h)) < AREA_EDGE_EPS) edges.bottom = true;
+      if (Math.abs((other.bounds.y + other.bounds.h) - area.bounds.y) < AREA_EDGE_EPS) edges.top = true;
+    }
+  }
+  return edges;
+}
+
+// Levels whose areas are distinct arenas rather than a continuous
+// walkable stretch — always clamp strictly to the current area here,
+// even where two areas happen to touch in world space.
+const STRICT_AREA_CAMERA_LEVELS = [LEVEL_THREE];
+
+function getCamClampBounds(px, py) {
+  const area = getAreaAt(px, py);
+  if (!area) return { x0: 0, y0: 0, x1: WORLD_W, y1: WORLD_H };
+
+  if (STRICT_AREA_CAMERA_LEVELS.includes(currentScreen)) {
+    return {
+      x0: area.bounds.x,
+      y0: area.bounds.y,
+      x1: area.bounds.x + area.bounds.w,
+      y1: area.bounds.y + area.bounds.h,
+    };
+  }
+
+  // Otherwise (levels 1 & 2): only clamp on edges that don't border
+  // another area, so the camera scrolls freely across a seam like
+  // bird -> fish instead of stopping dead at the area boundary.
+  const open = getAreaOpenEdges(area);
+  return {
+    x0: open.left ? 0 : area.bounds.x,
+    y0: open.top ? 0 : area.bounds.y,
+    x1: open.right ? WORLD_W : area.bounds.x + area.bounds.w,
+    y1: open.bottom ? WORLD_H : area.bounds.y + area.bounds.h,
+  };
+}
+
+// Snaps the camera directly onto the player (no lerp), clamped per
+// getCamClampBounds(). Used after teleports/respawns/resets. Accounts
+// for camZoom since the true visible span is width/height ÷ camZoom —
+// forgetting that let the clamp fall short whenever zoomed out (e.g.
+// the level 3 boss-fight zoom), which is why it looked "not clamped."
+function snapCameraToPlayer() {
+  const visibleW = width / camZoom;
+  const visibleH = height / camZoom;
+  const b = getCamClampBounds(player.x, player.y);
+  camX = constrain(player.x - width / 2, b.x0, Math.max(b.x0, b.x1 - visibleW));
+  camY = constrain(player.y - height / 2, b.y0, Math.max(b.y0, b.y1 - visibleH));
 }
 
 function buildLevel1WindZones(levelAreas) {
@@ -1625,8 +1716,9 @@ function updateCamera() {
   let targetX = player.x - width / 2;
   let targetY = player.y - height / 1.7;
 
-  targetX = constrain(targetX, 0, WORLD_W - width);
-  targetY = constrain(targetY, 0, WORLD_H - height);
+  const b = getCamClampBounds(player.x, player.y);
+  targetX = constrain(targetX, b.x0, Math.max(b.x0, b.x1 - visibleW));
+  targetY = constrain(targetY, b.y0, Math.max(b.y0, b.y1 - visibleH));
 
   camX = lerp(camX, targetX, CAM_SMOOTHING);
   camY = lerp(camY, targetY, CAM_SMOOTHING);
@@ -2020,8 +2112,7 @@ function respawnPlayer() {
 player.flapVelocity = 0;
 player.flapQueued = false;
 
-  camX = constrain(player.x - width / 2, 0, WORLD_W - width);
-  camY = constrain(player.y - height / 2, 0, WORLD_H - height);
+  snapCameraToPlayer();
 
   player.noiseLevel = 0;
 }
@@ -2074,8 +2165,7 @@ function findClosestPassedCheckpoint(px, py) {
   player.bounceVY = 0;
   // no invincibility here — user requested no glitching/flicker
 
-  camX = constrain(player.x - width / 2, 0, WORLD_W - width);
-  camY = constrain(player.y - height / 2, 0, WORLD_H - height);
+  snapCameraToPlayer();
 }**/
 function respawnFromHazard() {
   if (isRespawning) return; // already dying — ignore extra triggers
@@ -2097,8 +2187,7 @@ function respawnFromHazard() {
     player.bounceVX = 0;
     player.bounceVY = 0;
 
-    camX = constrain(player.x - width / 2, 0, WORLD_W - width);
-    camY = constrain(player.y - height / 2, 0, WORLD_H - height);
+    snapCameraToPlayer();
   });
 
   player.noiseLevel = 0;
@@ -2527,8 +2616,7 @@ function respawnFromDragon() {
     player.flapVelocity = 0;
     player.flapQueued = false;
 
-    camX = constrain(player.x - width / 2, 0, WORLD_W - width);
-    camY = constrain(player.y - height / 2, 0, WORLD_H - height);
+    snapCameraToPlayer();
   });
 }
  
@@ -3400,8 +3488,7 @@ if (currentScreen === LEVEL_THREE && level3EpilogueState === LEVEL3_EPILOGUE_STA
 if (currentScreen === LEVEL_THREE && level3EpilogueState === LEVEL3_EPILOGUE_STATE.CHOICE) {
   if (key === "y" || key === "Y") {
   level3EpilogueState = LEVEL3_EPILOGUE_STATE.MIMIC;
-  level3MimicSide = level3EndDragon.x > player.x ? "right" : "left";  // CHANGED
-  level3MimicFrozen = false;                                          // ADDED
+  level3EndDragonIsMoving = false;
   level3EpilogueLineTimer = 150;
   portalUnlocked = true;
   return;
