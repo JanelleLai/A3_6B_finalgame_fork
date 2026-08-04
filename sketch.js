@@ -163,7 +163,7 @@ const DRAGON_SLEEPING_SPRITE = {
   frameHeight: 0,
   numFrames: 6,
   animSpeed: 15,
-  scale: 0.32,
+  scale: 0.3,
 };
 
 let dragonSheet;
