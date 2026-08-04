@@ -87,6 +87,8 @@ let level3DialogueLines = [];
 let level3DialogueIndex = 0;
 let level3EpilogueLineTimer = 0;  // transient "This will work." line after choosing Y
 
+
+
 const LEVEL3_EPILOGUE_CONFIG = {
   approachDistance: 5 * TILE_SIZE, // CHANGED — 5 tiles instead of 2.5
   chaseSpeed: 6,          // CHANGED from 8 — was closing the gap almost instantly
@@ -108,6 +110,7 @@ const LEVEL3_MIMIC_CONFIG = {
 };
 
 let level3EndDragonIsMoving = false; // drives idle (bottom half) vs flying (top half) sprite rows
+let level3EndDragonChasing = false;  // hysteresis "intent to chase" flag, decoupled from animation
 
 // Persistent (not re-declared per-frame) animation state for the
 // epilogue dragon — separate from the shared boss-fight dragonAnimFrame
@@ -143,6 +146,7 @@ function initLevel3BossFight() {
 level3EndDragon = null;                              // ADDED
 level3EpilogueLineTimer = 0;                          // ADDED
 level3EndDragonIsMoving = false;
+level3EndDragonChasing = false;  // hysteresis "intent to chase" flag, decoupled from animation
 level3EndDragonAnimFrame = 0;
 level3EndDragonAnimTimer = 0;
 
@@ -699,7 +703,7 @@ function drawLevel3BossFightWorld() {
     for (const r of thrownRocks) {
       fill(150, 150, 150);
       noStroke();
-      ellipse(r.x, r.y, 28, 28);
+      ellipse(r.x, r.y, 45, 45);
     }
     pop();
 
@@ -864,6 +868,16 @@ function initLevel3Epilogue() {
   portalUnlocked = false; // stays shut until the rune is offered
 }
 
+// Plays the portal-opening sound exactly once, the first time the
+// portal actually unlocks. Safe to call from multiple places.
+function playPortalOpeningSoundOnce() {
+  if (portalUnlocked && !portalOpeningPlayed) {
+    if (portalOpeningSound) portalOpeningSound.play();
+    portalOpeningPlayed = true;
+  }
+}
+
+
 function updateLevel3Epilogue() {
   if (level3EpilogueState === LEVEL3_EPILOGUE_STATE.NONE || !level3EndDragon) return;
 
@@ -911,25 +925,37 @@ function updateLevel3Epilogue() {
 
   if (level3EpilogueState === LEVEL3_EPILOGUE_STATE.MIMIC) {
   const halfW = level3EndDragon.w / 2;
-  const gap = player.x - level3EndDragon.x;          // signed, dragon -> player
-  const edgeDist = Math.abs(gap) - halfW;            // distance from the dragon's hitbox edge to the player
+  const gap = player.x - level3EndDragon.x;
+  const edgeDist = Math.abs(gap) - halfW;
 
-  // Always faces the player.
   level3EndDragon.facing = gap < 0 ? "left" : "right";
 
-  // Hysteresis thresholds to avoid oscillation when the player sits near followRange.
   const startThreshold = LEVEL3_MIMIC_CONFIG.followRange + LEVEL3_MIMIC_HYST;
   const stopThreshold  = LEVEL3_MIMIC_CONFIG.followRange - LEVEL3_MIMIC_HYST;
 
+  // Hysteresis only decides whether the dragon INTENDS to chase right now —
+  // it no longer controls the animation directly, so it can't strand it.
   if (edgeDist > startThreshold) {
-    // definitely too far — move toward the player
-    const dir = Math.sign(gap);
-    level3EndDragon.x += dir * LEVEL3_MIMIC_CONFIG.followSpeed;
-    level3EndDragonIsMoving = true;
+    level3EndDragonChasing = true;
   } else if (edgeDist < stopThreshold) {
-    // definitely close enough — stop moving
-    level3EndDragonIsMoving = false;
-  } // else: within hysteresis band, keep previous level3EndDragonIsMoving value
+    level3EndDragonChasing = false;
+  }
+  // else: keep previous chasing intent — fine now, since movement below is clamped
+
+  let moved = false;
+  if (level3EndDragonChasing) {
+    const dir = Math.sign(gap);
+    // never step past the stop line — removes the dead zone entirely
+    const step = Math.min(LEVEL3_MIMIC_CONFIG.followSpeed, Math.max(0, edgeDist - stopThreshold));
+    if (step > 0.01) {
+      level3EndDragon.x += dir * step;
+      moved = true;
+    } else {
+      level3EndDragonChasing = false;
+    }
+  }
+
+  level3EndDragonIsMoving = moved; // reflects actual movement, never "stuck"
 }
 }
 
@@ -961,13 +987,6 @@ function drawLevel3EndDragon() {
     image(dragonSheet, level3EndDragon.x, level3EndDragon.y, dw, dh,
           sx, sy, DRAGON_SPRITE.frameWidth, DRAGON_SPRITE.frameHeight);
   }
-
-  // Debug overlay: show frame/row on-screen and log to console once per frame
-  fill(255, 200, 0);
-  textSize(12);
-  textAlign(LEFT, TOP);
-  text(`endDragon frame: ${level3EndDragonAnimFrame}  row: ${row}  moving:${isMoving}`, level3EndDragon.x - 40, level3EndDragon.y - dh/2 - 18);
-  console.log('endDragon debug:', level3EndDragonAnimFrame, row, isMoving);
 
   pop();
 }
