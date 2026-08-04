@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "game-server",
+      "runtimeExecutable": "ruby",
+      "runtimeArgs": ["-run", "-e", "httpd", "/Users/annadai/Documents/GitHub/A3_6B_finalgame", "-p", "8123"],
+      "port": 8123
+    }
+  ]
+}

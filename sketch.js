@@ -487,6 +487,48 @@ let requiredPortalKeys = REQUIRED_PORTAL_KEYS; // set per-level in loadLevel()
 const PORTAL_LAYER = "door";
 
 // ------------------------------------------------------------
+// FADE MESSAGE — a one-line bottom-of-screen notification that fades in,
+// holds, then fades out. Used for "Something has opened up somewhere..."
+// when a level's portal unlocks, but generic enough to reuse elsewhere.
+// ------------------------------------------------------------
+const FADE_MESSAGE_DURATION_FRAMES = 240; // 4s at 60fps, total time visible
+const FADE_MESSAGE_FADE_FRAMES = 30; // time spent fading in, and fading out
+let fadeMessageText = null;
+let fadeMessageStartFrame = 0;
+
+function showFadeMessage(msg) {
+  fadeMessageText = msg;
+  fadeMessageStartFrame = frameCount;
+}
+
+function drawFadeMessage() {
+  if (!fadeMessageText) return;
+  const elapsed = frameCount - fadeMessageStartFrame;
+  if (elapsed >= FADE_MESSAGE_DURATION_FRAMES) {
+    fadeMessageText = null;
+    return;
+  }
+
+  let alpha;
+  if (elapsed < FADE_MESSAGE_FADE_FRAMES) {
+    alpha = map(elapsed, 0, FADE_MESSAGE_FADE_FRAMES, 0, 255);
+  } else if (elapsed > FADE_MESSAGE_DURATION_FRAMES - FADE_MESSAGE_FADE_FRAMES) {
+    alpha = map(elapsed, FADE_MESSAGE_DURATION_FRAMES - FADE_MESSAGE_FADE_FRAMES, FADE_MESSAGE_DURATION_FRAMES, 255, 0);
+  } else {
+    alpha = 255;
+  }
+
+  push();
+  fill(255, alpha);
+  noStroke();
+  textFont("monospace");
+  textAlign(CENTER, CENTER);
+  textSize(16);
+  text(fadeMessageText, width / 2, height - 40);
+  pop();
+}
+
+// ------------------------------------------------------------
 // GAME STATE
 // ------------------------------------------------------------
 let score = 0;
@@ -590,34 +632,150 @@ function updateRespawnDelay() {
 
 // ============================================================
 // DEBUG MODE
-// Press M to toggle. While active, number keys jump directly
-// to a screen. Add one line to DEBUG_KEY_MAP per new screen.
+// Press M to toggle. Press 1/2/3 to open that level's submenu:
+// area letters teleport into that area with runes/gates set to
+// roughly match how far into the level you'd really be, W
+// triggers an instant win, L triggers an instant loss, and
+// Backspace returns to the level list.
 // ============================================================
 let debugModeActive = false;
+let debugMenuLevel = null; // null = top-level list; otherwise LEVEL_ONE/TWO/THREE
 
 const DEBUG_KEY_MAP = {
   "1": { screen: LEVEL_ONE,    label: "Level 1" },
   "2": { screen: LEVEL_TWO,    label: "Level 2" },
- "3": { screen: LEVEL_THREE, label: "Level 3" },  // 
+ "3": { screen: LEVEL_THREE, label: "Level 3" },  //
 };
+
+// Single-letter key per area name, shared across all levels' submenus.
+const DEBUG_AREA_KEYS = { start: "S", bird: "B", fish: "F", end: "E" };
 
 function isDebugModeActive() {
   return debugModeActive;
+}
+
+function debugAreaFormFor(areaKey) {
+  if (areaKey === "bird") return FORM_BIRD;
+  if (areaKey === "fish") return FORM_FISH;
+  return FORM_HUMAN;
+}
+
+// Teleports into one of a level's areas with rune count (and therefore
+// which GATE_LAYERS barriers are open) set proportional to that area's
+// position in the level, rather than dropping in with everything still
+// locked — e.g. jumping to the last area sets keyCollected as if you'd
+// collected runes all the way there.
+function debugJumpToArea(levelId, areaKey) {
+  goToScreen(levelId);
+
+  const areas = LEVELS[levelId].areas;
+  const index = areas.findIndex((a) => a.key === areaKey);
+  const proportion = areas.length > 1 ? index / (areas.length - 1) : 0;
+  keyCollected = Math.round(proportion * requiredPortalKeys);
+  portalUnlocked = portalIsUnlocked();
+
+  const area = findArea(levelAreas, areaKey);
+  if (area) {
+    // Land on the area's first checkpoint (checkpoints are pre-sorted
+    // left-to-right) rather than an arbitrary point in the area.
+    const areaCheckpoints = checkpoints.filter(
+      (cp) =>
+        cp.x >= area.bounds.x &&
+        cp.x < area.bounds.x + area.bounds.w &&
+        cp.y >= area.bounds.y &&
+        cp.y < area.bounds.y + area.bounds.h,
+    );
+    if (areaCheckpoints.length > 0) {
+      player.x = areaCheckpoints[0].spawnX;
+      player.y = areaCheckpoints[0].spawnY;
+    } else if (areaKey === "start") {
+      // The starting area has no checkpoint of its own — the level's
+      // own spawn point IS the "first checkpoint" there.
+      player.x = LEVELS[levelId].playerStart.x;
+      player.y = LEVELS[levelId].playerStart.y;
+    } else {
+      player.x = area.bounds.x + area.bounds.w / 2;
+      player.y = area.bounds.y + 50;
+    }
+  }
+  player.form = debugAreaFormFor(areaKey);
+  player.vx = 0;
+  player.vy = 0;
+  snapCameraToPlayer();
+}
+
+// DEBUG — win: level 3 replicates pressing Y at the epilogue choice;
+// levels 1/2 unlock the portal and go straight to the win screen, same
+// as walking into it (see checkPortalEntrance()).
+function debugWinLevel(levelId) {
+  if (levelId === LEVEL_THREE) {
+    goToScreen(levelId);
+    debugTriggerLevel3EpilogueChoice(true);
+    return;
+  }
+  goToScreen(levelId);
+  keyCollected = requiredPortalKeys;
+  portalUnlocked = portalIsUnlocked();
+  stopAllGameSounds();
+  gameState = STATE_WIN;
+}
+
+// DEBUG — lose: level 3 replicates pressing N (gets chased/caught); levels
+// 1/2 die and respawn at the last checkpoint, same as any hazard death.
+function debugLoseLevel(levelId) {
+  if (levelId === LEVEL_THREE) {
+    goToScreen(levelId);
+    debugTriggerLevel3EpilogueChoice(false);
+    return;
+  }
+  goToScreen(levelId);
+  respawnFromHazard();
 }
 
 // Returns true if it handled the keypress (so keyPressed() should stop).
 function handleDebugKeyPress(key, keyCode) {
   if (key === "m" || key === "M") {
     debugModeActive = !debugModeActive;
+    debugMenuLevel = null;
     return true;
   }
 
   if (!debugModeActive) return false;
 
-  const entry = DEBUG_KEY_MAP[key];
-  if (entry) {
-    goToScreen(entry.screen);
-    debugModeActive = false; // close menu after jumping
+  if (debugMenuLevel === null) {
+    const entry = DEBUG_KEY_MAP[key];
+    if (entry) {
+      debugMenuLevel = entry.screen;
+      return true;
+    }
+    return false;
+  }
+
+  if (key === "Backspace" || key === "Escape") {
+    debugMenuLevel = null;
+    return true;
+  }
+
+  const upperKey = key.toUpperCase();
+  const areas = LEVELS[debugMenuLevel].areas;
+  const areaMatch = areas.find((a) => DEBUG_AREA_KEYS[a.key] === upperKey);
+  if (areaMatch) {
+    debugJumpToArea(debugMenuLevel, areaMatch.key);
+    debugModeActive = false;
+    debugMenuLevel = null;
+    return true;
+  }
+
+  if (upperKey === "W") {
+    debugWinLevel(debugMenuLevel);
+    debugModeActive = false;
+    debugMenuLevel = null;
+    return true;
+  }
+  if (upperKey === "L") {
+    debugLoseLevel(debugMenuLevel);
+    debugModeActive = false;
+    debugMenuLevel = null;
     return true;
   }
 
@@ -636,14 +794,31 @@ function drawDebugOverlay() {
   textFont("monospace");
   textAlign(CENTER, CENTER);
   textSize(20);
-  text("DEBUG MODE", width / 2, height / 2 - 80);
+  text("DEBUG MODE", width / 2, height / 2 - 100);
 
   textSize(14);
-  let y = height / 2 - 40;
-  for (const key in DEBUG_KEY_MAP) {
-    text(`[${key}] ${DEBUG_KEY_MAP[key].label}`, width / 2, y);
+  let y = height / 2 - 60;
+
+  if (debugMenuLevel === null) {
+    for (const key in DEBUG_KEY_MAP) {
+      text(`[${key}] ${DEBUG_KEY_MAP[key].label}`, width / 2, y);
+      y += 24;
+    }
+  } else {
+    const areas = LEVELS[debugMenuLevel].areas;
+    for (const a of areas) {
+      text(`[${DEBUG_AREA_KEYS[a.key]}] Jump to "${a.key}" area`, width / 2, y);
+      y += 24;
+    }
+    const isLevel3 = debugMenuLevel === LEVEL_THREE;
+    text(isLevel3 ? "[W] Win (befriend the dragon)" : "[W] Win (reach the portal)", width / 2, y);
+    y += 24;
+    text(isLevel3 ? "[L] Lose (get caught by the dragon)" : "[L] Lose (die, respawn at last checkpoint)", width / 2, y);
+    y += 24;
+    text("[Backspace] Back to level list", width / 2, y);
     y += 24;
   }
+
   text("[M] Close debug menu", width / 2, y + 10);
   pop();
 }
@@ -1236,6 +1411,7 @@ drawLevel3EndDragon();
   pop();
   drawKeyHUD();
   drawNoiseHUD();
+  drawFadeMessage();
   if (currentScreen === LEVEL_THREE && typeof drawLevel3HUD === "function") {
     drawLevel3HUD();
   }
@@ -1311,9 +1487,13 @@ function drawNoiseHUD() {
   textAlign(CENTER, TOP);
   text("NOISE", x + barW / 2, y - 20);
 
-  // Track (empty background of the bar)
+  // Track (empty background of the bar) — bordered in the same dark
+  // scarlet red as the bats, since they're what the noise meter warns about
+  stroke(139, 0, 0);
+  strokeWeight(2);
   fill(60, 60, 60);
   rect(x, y, barW, barH, 4);
+  noStroke();
 
   // Fill height, growing from the bottom up as noise increases
   const fillH = barH * t;
@@ -2280,6 +2460,10 @@ dragonGrowl.play();
   dragonPath = [];
 dragonPathIndex = 0;
 dragonPathRecalcTimer = DRAGON_PATH_RECALC_INTERVAL; // forces recalc on the very next updateDragon() call
+  dragonStillFrames = 0;
+  dragonPrevX = dragon.x;
+  dragonPrevY = dragon.y;
+  dragonNudging = false;
 }
 
 // ------------------------------------------------------------
@@ -2419,24 +2603,47 @@ function dragonInSeaweed() {
 function updateDragon() {
   if (!dragon || dragon.state !== DRAGON_STATE.CHASING) return;
 
+  const speed = dragonInSeaweed()
+    ? DRAGON_CONFIG.chaseSpeed / DRAGON_CONFIG.seaweedSlowFactor
+    : DRAGON_CONFIG.chaseSpeed;
+
+  // Currently easing up out of a stuck spot (see below) — glide toward the
+  // target tile instead of snapping, and skip normal path-following until
+  // it arrives so the two movements don't fight each other.
+  if (dragonNudging) {
+    const diff = dragonNudgeTargetY - dragon.y;
+    if (Math.abs(diff) < speed) {
+      dragon.y = dragonNudgeTargetY;
+      dragonNudging = false;
+    } else {
+      dragon.y += Math.sign(diff) * speed;
+    }
+    resolveDragonSolidCollisions();
+    dragonPrevX = dragon.x;
+    dragonPrevY = dragon.y;
+    return;
+  }
+
   dragonPathRecalcTimer++;
   if (dragonPathRecalcTimer >= DRAGON_PATH_RECALC_INTERVAL || dragonPathIndex >= dragonPath.length) {
     dragonPathRecalcTimer = 0;
     recalcDragonPath();
   }
 
-  const speed = dragonInSeaweed()
-    ? DRAGON_CONFIG.chaseSpeed / DRAGON_CONFIG.seaweedSlowFactor
-    : DRAGON_CONFIG.chaseSpeed;
-
   let target = { x: player.x, y: player.y }; // fallback if no path yet
   if (dragonPath.length > 0 && dragonPathIndex < dragonPath.length) {
+    const isFinalNode = dragonPathIndex === dragonPath.length - 1;
     const node = dragonPath[dragonPathIndex];
-    target = {
-      x: node.tx * TILE_SIZE + TILE_SIZE / 2,
-      y: node.ty * TILE_SIZE + TILE_SIZE / 2,
-    };
-    if (dist(dragon.x, dragon.y, target.x, target.y) < DRAGON_PATH_WAYPOINT_RADIUS) {
+    // The final node is only a tile-center approximation of the player's
+    // real (continuous) position — near a tight ledge that grid-snapped
+    // point can be a worse spot than the player's actual position, since
+    // real collision resolution isn't grid-locked. Home in on the player
+    // directly for the last leg instead of the tile center.
+    target = isFinalNode
+      ? { x: player.x, y: player.y }
+      : { x: node.tx * TILE_SIZE + TILE_SIZE / 2, y: node.ty * TILE_SIZE + TILE_SIZE / 2 };
+    const waypointRadius = Math.max(DRAGON_PATH_WAYPOINT_RADIUS, (dragon.w / 2) * 0.6);
+    if (!isFinalNode && dist(dragon.x, dragon.y, target.x, target.y) < waypointRadius) {
       dragonPathIndex++;
     }
   }
@@ -2450,17 +2657,54 @@ function updateDragon() {
   dragon.facing = dx < 0 ? "left" : "right";
 
   resolveDragonSolidCollisions();
+
+  // If the dragon hasn't actually moved for a while (snagged on a corner/
+  // ledge), ease it up one tile to break out rather than sitting frozen —
+  // but only if there's actually open space to move into. Without this
+  // check, a player resting somewhere the dragon can never reach (e.g. a
+  // tight refuge) makes it re-trigger endlessly, climbing tile after tile
+  // until it rams a solid ceiling and sits pinned there.
+  const moved = dist(dragon.x, dragon.y, dragonPrevX, dragonPrevY);
+  if (moved < 0.5) {
+    dragonStillFrames++;
+    if (dragonStillFrames > 30) {
+      if (!dragonBoxOverlapsSolid(dragon.x, dragon.y - TILE_SIZE)) {
+        dragonNudging = true;
+        dragonNudgeTargetY = dragon.y - TILE_SIZE;
+      }
+      dragonStillFrames = 0;
+    }
+  } else {
+    dragonStillFrames = 0;
+  }
+  dragonPrevX = dragon.x;
+  dragonPrevY = dragon.y;
+}
+
+// True if the dragon's collision box, centered at (x,y), would overlap any
+// currently-solid tile — a pure check, doesn't move anything.
+function dragonBoxOverlapsSolid(x, y) {
+  const halfW = dragon.w / 2;
+  const halfH = dragon.h / 2;
+  for (const t of solidTiles) {
+    const requiredKeys = GATE_LAYERS[t.layerName];
+    if (requiredKeys !== undefined && keyCollected >= requiredKeys) continue;
+    const overlapX = Math.min(x + halfW, t.x + t.w) - Math.max(x - halfW, t.x);
+    const overlapY = Math.min(y + halfH, t.y + t.h) - Math.max(y - halfH, t.y);
+    if (overlapX > 0 && overlapY > 0) return true;
+  }
+  return false;
 }
 
 // Same idea as resolveSolidCollisions()/resolveCircleRect() for the
 // player, but box-vs-box (AABB) since the dragon is a 3x3 tile block
 // rather than a circle. Respects the same rune-gated barriers.
-/** 
+/**
 function resolveDragonSolidCollisions() {
   if (!dragon) return;
   const halfW = dragon.w / 2;
   const halfH = dragon.h / 2;
- 
+
   for (const t of solidTiles) {
     const requiredKeys = GATE_LAYERS[t.layerName];
     if (requiredKeys !== undefined && keyCollected >= requiredKeys) continue; // gate is open
@@ -2473,30 +2717,28 @@ function resolveDragonSolidCollisions() {
   const halfW = dragon.w / 2;
   const halfH = dragon.h / 2;
 
-  const hitbox = getDragonHitboxCenter();
-  const proxy = { x: hitbox.x, y: hitbox.y };
-
+  // Collides against dragon.x/y directly (not the offset hitbox used for
+  // player-touch damage) so this shares the same frame of reference as the
+  // A* path, which is also built around dragon.x/y — otherwise the path
+  // considers a corner "clear" that the offset collision box still clips.
   for (const t of solidTiles) {
     const requiredKeys = GATE_LAYERS[t.layerName];
     if (requiredKeys !== undefined && keyCollected >= requiredKeys) continue;
-    resolveBoxRect(proxy, halfW, halfH, t);
+    resolveBoxRect(dragon, halfW, halfH, t);
   }
-
-  dragon.x += proxy.x - hitbox.x;
-  dragon.y += proxy.y - hitbox.y;
-} 
+}
 
 function resolveBoxRect(entity, halfW, halfH, rect) {
   const left = entity.x - halfW;
   const right = entity.x + halfW;
   const top = entity.y - halfH;
   const bottom = entity.y + halfH;
- 
+
   const overlapX = Math.min(right, rect.x + rect.w) - Math.max(left, rect.x);
   const overlapY = Math.min(bottom, rect.y + rect.h) - Math.max(top, rect.y);
- 
+
   if (overlapX <= 0 || overlapY <= 0) return; // no overlap
- 
+
   // Push out along whichever axis has the smaller overlap.
   if (overlapX < overlapY) {
     if (entity.x < rect.x + rect.w / 2) entity.x -= overlapX;
@@ -2582,6 +2824,10 @@ function respawnFromDragon() {
       dragonPath = [];
       dragonPathIndex = 0;
       dragonPathRecalcTimer = DRAGON_PATH_RECALC_INTERVAL;
+      dragonStillFrames = 0;
+      dragonPrevX = dragon.x;
+      dragonPrevY = dragon.y;
+      dragonNudging = false;
 
       if (chaseMusic && !chaseMusic.isPlaying()) chaseMusic.loop();
     } else {
@@ -2700,6 +2946,7 @@ function checkKeys() {
       portalUnlocked = portalIsUnlocked();
       if (portalUnlocked && !portalOpeningPlayed) {
         if (portalOpeningSound) portalOpeningSound.play();
+        showFadeMessage("Something has opened up somewhere...");
         portalOpeningPlayed = true;
       }
 
@@ -2853,6 +3100,61 @@ for (const cp of checkpoints) {
   checkpointLeftmost.add(tileX + "," + Math.round(cp.y / TILE_SIZE));
 }
 
+// Groups whirlpool tiles into their connected 3x3 (or whatever shape)
+// clusters via 4-directional flood fill on tile-grid coords, then draws ONE
+// scaled whirlpool animation frame per cluster's bounding box — instead of
+// tiling 9 separate small animated images together per group.
+function drawWhirlpoolLayer(tiles, mapXOffset, mapYOffset) {
+  const byKey = new Map(tiles.map((t) => [`${t.x},${t.y}`, t]));
+  const visited = new Set();
+  const clusters = [];
+
+  for (const t of tiles) {
+    const key = `${t.x},${t.y}`;
+    if (visited.has(key)) continue;
+    const cluster = [];
+    const stack = [t];
+    visited.add(key);
+    while (stack.length) {
+      const cur = stack.pop();
+      cluster.push(cur);
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nKey = `${cur.x + dx},${cur.y + dy}`;
+        const neighbor = byKey.get(nKey);
+        if (neighbor && !visited.has(nKey)) {
+          visited.add(nKey);
+          stack.push(neighbor);
+        }
+      }
+    }
+    clusters.push(cluster);
+  }
+
+  for (const cluster of clusters) {
+    const minX = Math.min(...cluster.map((t) => t.x));
+    const maxX = Math.max(...cluster.map((t) => t.x));
+    const minY = Math.min(...cluster.map((t) => t.y));
+    const maxY = Math.max(...cluster.map((t) => t.y));
+    const x = minX * TILE_SIZE + mapXOffset;
+    const y = minY * TILE_SIZE + mapYOffset;
+    const w = (maxX - minX + 1) * TILE_SIZE;
+    const h = (maxY - minY + 1) * TILE_SIZE;
+
+    push();
+    if (whirlpoolImg) {
+      const frameW = whirlpoolImg.width / WHIRLPOOL_SPRITE.numFrames;
+      const frameH = whirlpoolImg.height;
+      const sx = whirlpoolFrame * frameW;
+      imageMode(CORNER);
+      image(whirlpoolImg, x, y, w * WHIRLPOOL_SPRITE.scale, h * WHIRLPOOL_SPRITE.scale, sx, 0, frameW, frameH);
+    } else {
+      fill(10, 50, 120, 160);
+      ellipse(x + w / 2, y + h / 2, Math.min(w, h) * 0.6);
+    }
+    pop();
+  }
+}
+
 function drawTiles(area) {
   const jsonFile = area.json;
   const mapXOffset = area.bounds.x;
@@ -2935,9 +3237,13 @@ function drawTiles(area) {
     if (layer.name === "water") continue;
     if (layer.name === "bg green") continue;
     if (layer.name === "background") continue;
-    if (layer.name === BAT_LAYER) continue;              
+    if (layer.name === BAT_LAYER) continue;
     if (layer.name === DRAGON_SPAWN_LAYER) continue;
     if (layer.name === "fish spawn") continue;
+    if (layer.name === WHIRLPOOL_LAYER) {
+      drawWhirlpoolLayer(layer.tiles, mapXOffset, mapYOffset);
+      continue;
+    }
 
     let spikePositions = null;
     if (area.key === "bird" && layer.name === "spikes") {
@@ -2973,30 +3279,6 @@ function drawTiles(area) {
             RUNE_SPRITE.frameWidth,
             RUNE_SPRITE.frameHeight,
           );
-        }
-      } else if (layer.name === WHIRLPOOL_LAYER) {
-        if (whirlpoolImg) {
-          const frameW = whirlpoolImg.width / WHIRLPOOL_SPRITE.numFrames;
-          const frameH = whirlpoolImg.height;
-          const sx = whirlpoolFrame * frameW;
-          imageMode(CENTER);
-          translate(x + TILE_SIZE / 2, y + TILE_SIZE / 2);
-          image(
-            whirlpoolImg,
-            0,
-            0,
-            TILE_SIZE * WHIRLPOOL_SPRITE.scale,
-            TILE_SIZE * WHIRLPOOL_SPRITE.scale,
-            sx,
-            0,
-            frameW,
-            frameH,
-          );
-        } else {
-          fill(tileColor(layer.name, t.id));
-          rect(x, y, TILE_SIZE, TILE_SIZE, TILE_SIZE * 0.25);
-          fill(10, 50, 120, 160);
-          ellipse(x + TILE_SIZE / 2, y + TILE_SIZE / 2, TILE_SIZE * 0.6);
         }
       } else if (area.key === "fish" && layer.name === "sand") {
         sandImg
@@ -3134,7 +3416,7 @@ function drawTiles(area) {
         const isOpen = keyCollected >= GATE_LAYERS[layer.name];
         if (!isOpen) image(barrierImg, x, y, TILE_SIZE, TILE_SIZE);
       } else if (layer.name === PORTAL_LAYER) {
-  const isOpen = currentScreen === LEVEL_THREE ? portalUnlocked : keyCollected >= REQUIRED_PORTAL_KEYS; // CHANGED
+  const isOpen = portalUnlocked; // CHANGED — was checking the hardcoded REQUIRED_PORTAL_KEYS fallback (5) instead of this level's actual requiredPortalKeys, so level 2 (needs 4) never showed the open image
   const pImg = isOpen ? portalOpenImg : portalClosedImg;
   
         if (pImg) {

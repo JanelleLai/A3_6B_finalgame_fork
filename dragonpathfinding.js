@@ -12,6 +12,11 @@ const DRAGON_PATH_MAX_NODES = 3000; // safety cap so a big open level can't stal
 let dragonPath = []; // [{tx,ty}, ...] tile coords, from just-past-dragon to goal
 let dragonPathIndex = 0;
 let dragonPathRecalcTimer = 0;
+let dragonStillFrames = 0; // consecutive frames with ~no movement; see updateDragon()
+let dragonPrevX = 0;
+let dragonPrevY = 0;
+let dragonNudging = false; // easing upward out of a stuck spot; see updateDragon()
+let dragonNudgeTargetY = 0;
 
 function tileKey(tx, ty) {
   return `${tx},${ty}`;
@@ -31,7 +36,7 @@ function buildDragonBlockedSet() {
 
 // CHANGED — accepts tileSpanTiles instead of hardcoding DRAGON_CONFIG.tileSpan
 function isDragonBlockedTile(tx, ty, blockedSet, tileSpanTiles = DRAGON_CONFIG.tileSpan) {
-  const inflate = Math.floor(tileSpanTiles / 2);
+  const inflate = Math.ceil(tileSpanTiles / 2);
   for (let dx = -inflate; dx <= inflate; dx++) {
     for (let dy = -inflate; dy <= inflate; dy++) {
       if (blockedSet.has(tileKey(tx + dx, ty + dy))) return true;
@@ -89,7 +94,13 @@ function findDragonPath(startTx, startTy, goalTx, goalTy, blockedSet, tileSpanTi
       const nty = currentNode.ty + dy;
       const nKey = tileKey(ntx, nty);
       if (closed.has(nKey)) continue;
-  if (isDragonBlockedTile(ntx, nty, blockedSet, tileSpanTiles)) continue;
+      // The goal tile is the player's own standing tile, which can legitimately
+      // sit within one tile of a wall (e.g. hugging a corner) — checking it with
+      // the dragon's full body-clearance inflation would make it "blocked" and
+      // unreachable, so only the tile itself (not its neighborhood) matters there.
+      if (nKey === goalKey) {
+        if (blockedSet.has(nKey)) continue;
+      } else if (isDragonBlockedTile(ntx, nty, blockedSet, tileSpanTiles)) continue;
 
       // Don't let it cut diagonally through a wall corner
        if (dx !== 0 && dy !== 0) {

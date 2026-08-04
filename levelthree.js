@@ -800,12 +800,15 @@ function updateLevel3BossChase() {
 
   let target = { x: player.x, y: player.y }; // fallback if no path yet
   if (level3BossPath.length > 0 && level3BossPathIndex < level3BossPath.length) {
+    const isFinalNode = level3BossPathIndex === level3BossPath.length - 1;
     const node = level3BossPath[level3BossPathIndex];
-    target = {
-      x: node.tx * TILE_SIZE + TILE_SIZE / 2,
-      y: node.ty * TILE_SIZE + TILE_SIZE / 2,
-    };
-    if (dist(level3Boss.x, level3Boss.y, target.x, target.y) < DRAGON_PATH_WAYPOINT_RADIUS) {
+    // Last leg homes in on the player's real position instead of the tile
+    // center — see updateDragon() in sketch.js for why.
+    target = isFinalNode
+      ? { x: player.x, y: player.y }
+      : { x: node.tx * TILE_SIZE + TILE_SIZE / 2, y: node.ty * TILE_SIZE + TILE_SIZE / 2 };
+    const waypointRadius = Math.max(DRAGON_PATH_WAYPOINT_RADIUS, (level3Boss.w / 2) * 0.6);
+    if (!isFinalNode && dist(level3Boss.x, level3Boss.y, target.x, target.y) < waypointRadius) {
       level3BossPathIndex++;
     }
   }
@@ -873,7 +876,31 @@ function initLevel3Epilogue() {
 function playPortalOpeningSoundOnce() {
   if (portalUnlocked && !portalOpeningPlayed) {
     if (portalOpeningSound) portalOpeningSound.play();
+    showFadeMessage("Something has opened up somewhere...");
     portalOpeningPlayed = true;
+  }
+}
+
+// DEBUG — sets up the epilogue (creating level3EndDragon etc. via
+// initLevel3Epilogue()) and immediately applies the same branch the real
+// Y/N keypress handler (sketch.js, LEVEL3_EPILOGUE_STATE.CHOICE) would.
+function debugTriggerLevel3EpilogueChoice(win) {
+  initLevel3Epilogue();
+
+  if (win) {
+    level3EpilogueState = LEVEL3_EPILOGUE_STATE.MIMIC;
+    if (level3EndDragon) {
+      const halfW = level3EndDragon.w / 2;
+      const gap = player.x - level3EndDragon.x;
+      const edgeDist = Math.abs(gap) - halfW;
+      level3EndDragonIsMoving = edgeDist > LEVEL3_MIMIC_CONFIG.followRange;
+      level3EndDragon.facing = gap < 0 ? "left" : "right";
+    }
+    level3EpilogueLineTimer = 150;
+    portalUnlocked = true;
+  } else {
+    level3ChaseWindupTimer = 0;
+    level3EpilogueState = LEVEL3_EPILOGUE_STATE.CHASING;
   }
 }
 
