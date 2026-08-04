@@ -1229,14 +1229,14 @@ function drawLevel3DialogueUI() {
     textSize(16);
     text("I need something from you first.", 24, height - boxH + 40, width - 48);
     textSize(14);
-    text('[Y] Offer a rune        [N] "Just disappear!"', 24, height - boxH + 80);
+    text('[Y] Offer a rune        [N] Attack the dragon', 24, height - boxH + 80);
   } else if (level3EpilogueLineTimer > 0) {
     fill(230, 200, 80);
     textSize(14);
     text("Dragon", 24, height - boxH + 16);
     fill(255);
     textSize(16);
-    text("This will work.", 24, height - boxH + 40);
+    text("This will work. Let us depart together.", 24, height - boxH + 40);
     level3EpilogueLineTimer--;
     // Portal is already mechanically unlocked (set the moment Y was chosen)
     // — this is just the sound/message cue, timed to land right after the
@@ -1259,9 +1259,9 @@ function drawLevel3BadEndScreen() {
   textFont("monospace");
   textAlign(CENTER, CENTER);
   textSize(28);
-  text("YOU WERE CAUGHT", width / 2, height / 2 - 20);
+  text("YOU DIED", width / 2, height / 2 - 20);
   fill(255);
   textSize(14);
-  text("The dragon was right — there was no escaping the box.", width / 2, height / 2 + 20);
+  text("The dragon was right. You cannot win in brute combat.", width / 2, height / 2 + 20);
   pop();
 }

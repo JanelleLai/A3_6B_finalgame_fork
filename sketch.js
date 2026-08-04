@@ -241,8 +241,8 @@ const FISH_WATER_DRAG = 0.88;
 // BIRD NOISE LEVEL (Level 2)
 // ------------------------------------------------------------
 const NOISE_LEVEL_MAX = 100;
-const NOISE_INCREASE_RATE = 2.5; // per frame while moving
-const NOISE_DECAY_RATE = 0.9;    // per frame while idle
+const NOISE_INCREASE_RATE = 2; // per frame while moving
+const NOISE_DECAY_RATE = 1;    // per frame while idle
 
 const TILE_SIZE = 50;
 const CHECKPOINT_TRIGGER_MARGIN = 2 * TILE_SIZE; // how far around the flag counts as "reached"
