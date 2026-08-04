@@ -168,6 +168,7 @@ const DRAGON_SLEEPING_SPRITE = {
 
 let dragonSheet;
 let dragonSleepingSheet;
+let angryDragonSheet;
 let dragonAnimFrame = 0;
 let dragonAnimTimer = 0;
 let dragonPingPongDir = 1;
@@ -413,6 +414,7 @@ let spikeImg2;
 let spike1Img3;
 let spike2Img3;
 let waterSurfaceImg;
+let waterSurface2Img;
 let portalClosedImg;
 let portalOpenImg;
 let windImg;
@@ -434,8 +436,9 @@ let fishareaBG2;
 let fishareaOverlay2;
 
 let fishareaBG3;
-// let birdareaBG3;  // PLACEHOLDER — set once a level 3 bird-area background asset exists
-// let endareaBG3;   // PLACEHOLDER — set once a level 3 end-area background asset exists
+let birdareaBG3;
+let endareaBG3;
+let stoneImg; // level 3 bird-arena pedestal/thrown-rock sprite
 
 let fishSheet; //fish sprite sheet
 let birdSheet; //bird sprite sheet
@@ -449,6 +452,7 @@ let portalChime;
 let walkingsound;
 let flappingsound;
 let fishareasound;
+let fishBGsound;
 let humanBGsound;
 let birdBGsound;
 let batsound;
@@ -542,7 +546,7 @@ function drawFadeMessage() {
   textFont("monospace");
   textAlign(CENTER, CENTER);
   textSize(16);
-  text(fadeMessageText, width / 2, height - 40);
+  text(fadeMessageText, width / 2, height / 2);
   pop();
 }
 
@@ -601,19 +605,28 @@ const LEVELS = {
   },
   [LEVEL_THREE]: {
     areas: [
-      { key: "fish", json: "fishArea3", bg: "fishareaBG3" },
+      {
+        key: "fish",
+        json: "fishArea3",
+        bg: "fishareaBG3",
+        // Right edge of the bg should land on the left edge of the fish
+        // arena's right-side wall (local tile x=46 in data/3fisharea.json,
+        // where the "rock" column depth jumps from 24 to 35 tiles), not
+        // stretch across the whole area like the default bgSize did.
+        bgSize: [42 * TILE_SIZE, null],
+      },
       {
         key: "bird",
         json: "birdArea3",
-        // bg: "birdareaBG3", // PLACEHOLDER — set once a level 3 bird-area background asset exists
+        bg: "birdareaBG3",
       },
       {
         key: "end",
         json: "endArea3",
-        // bg: "endareaBG3", // PLACEHOLDER — set once a level 3 end-area background asset exists
+        bg: "endareaBG3",
       },
     ],
-    playerStart: { x: 10 * TILE_SIZE, y: 26 * TILE_SIZE },
+    playerStart: { x: 4 * TILE_SIZE, y: 12 * TILE_SIZE },
   },
 };
 
@@ -985,12 +998,14 @@ function preload() {
   barrierImg = loadImage("assets/images/barrier.png");
 
   waterSurfaceImg = loadImage("assets/images/watersurface.png");
+  waterSurface2Img = loadImage("assets/images/2watersurface.png");
   fishareaBG = loadImage("assets/images/fishareaBG.png");
   fishareaOverlay = loadImage("assets/images/fishareaoverlay.png");
   fishareaBG2 = loadImage("assets/images/2fisharea.png");
   fishareaBG3 = loadImage("assets/images/3fishareabg.png");
-  // birdareaBG3 = loadImage("assets/images/3birdareabg.png"); // PLACEHOLDER — asset doesn't exist yet
-  // endareaBG3 = loadImage("assets/images/3endareabg.png");   // PLACEHOLDER — asset doesn't exist yet
+  birdareaBG3 = loadImage("assets/images/3birdareabg.png");
+  stoneImg = loadImage("assets/images/stone.png");
+  endareaBG3 = loadImage("assets/images/3endarea.png");
 
   cavebg = loadImage("assets/images/cavebg.png"); //bird area background level 1
   cavebg2 = loadImage("assets/images/2birdarea.png"); //bird area background level 2 
@@ -1006,6 +1021,7 @@ function preload() {
   bridgeImg = loadImage("assets/images/Bridge2.png");
   dragonSheet = loadImage("assets/images/dragonSheet.png");
   dragonSleepingSheet = loadImage("assets/images/dragonSleeping.png");
+  angryDragonSheet = loadImage("assets/images/AngryDragonSprite.png"); // same layout as dragonSheet — drop-in swap for the charge telegraph / N-choice attack
 
   endbg = loadImage("assets/images/endareabg.png");
   flagDownImg = loadImage("assets/images/flagdown.png");
@@ -1026,6 +1042,13 @@ function preload() {
   flappingsound = loadSound("assets/sounds/flappingbird.mp3"); //level1
   birdflapsound = loadSound("assets/sounds/birdflap.mp3"); //level2
   fishareasound = loadSound("assets/sounds/fisharea.mp3");
+  if (fishareasound) {
+    fishareasound.setVolume(0.15);
+  }
+  fishBGsound = loadSound("assets/sounds/fishbg.mp3");
+  if (fishBGsound) {
+    fishBGsound.setVolume(0.15);
+  }
   humanBGsound = loadSound("assets/sounds/HumanBG.mp3");
   birdBGsound = loadSound("assets/sounds/birdBG.mp3");
   if (birdBGsound) {
@@ -1066,8 +1089,8 @@ function preload() {
   birdArea3,
   endArea3,
   fishareaBG3,
-  // birdareaBG3, // PLACEHOLDER — asset doesn't exist yet
-  // endareaBG3,  // PLACEHOLDER — asset doesn't exist yet
+  birdareaBG3,
+  endareaBG3,
   };
 }
 
@@ -1892,17 +1915,19 @@ function updateWalkingSound() {
 // regardless of form. Stops the instant they surface/leave water.
 // ------------------------------------------------------------
 function updateFishAreaSound() {
-  if (!fishareasound) return; // use whatever variable name you declared
+  if (!fishareasound || !fishBGsound) return; // use whatever variable name you declared
 
   const shouldPlay = playerInWater();
 
   if (shouldPlay) {
     if (!fishareasound.isPlaying()) {
       fishareasound.loop();
+      fishBGsound.loop();
     }
   } else {
     if (fishareasound.isPlaying()) {
       fishareasound.stop();
+      fishBGsound.stop();
     }
   }
 }
@@ -1946,6 +1971,7 @@ function stopAllGameSounds() {
     flappingsound,
     birdflapsound,
     fishareasound,
+    fishBGsound,
     humanBGsound,
     birdBGsound,
     runesound,
@@ -3565,8 +3591,9 @@ function drawTiles(area) {
           : (fill(tileColor(layer.name, t.id)),
             rect(x, y, TILE_SIZE, TILE_SIZE));
       } else if (layer.name === "water surface") {
-        waterSurfaceImg
-          ? image(waterSurfaceImg, x, y, TILE_SIZE, TILE_SIZE)
+        const waterSurfaceSprite = currentScreen === LEVEL_TWO && waterSurface2Img ? waterSurface2Img : waterSurfaceImg;
+        waterSurfaceSprite
+          ? image(waterSurfaceSprite, x, y, TILE_SIZE, TILE_SIZE)
           : (fill(tileColor(layer.name, t.id)),
             rect(x, y, TILE_SIZE, TILE_SIZE));
       } else if (currentScreen === LEVEL_THREE && area.key === "fish" && layer.name === "spikes") {

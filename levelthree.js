@@ -69,7 +69,11 @@ let level3BossPrevX = 0;
 let level3BossPrevY = 0;
 let level3BossNudging = false;
 let level3BossNudgeTargetY = 0;
+let level3BossChargeStartX = 0; // position when a SWIM-phase charge begins — see the deadlock-breaking nudge in updateLevel3BossFight()
+let level3BossChargeStartY = 0;
 let level3BossDefeated = false;
+let level3BossAnimFrame = 0; // own animation clock — see drawLevel3BossFightWorld() for why
+let level3BossAnimTimer = 0;
 let level3ChargeSoundIndex = 0; // cycles dragonScreech/dragonGrowl2 each charge
 
 let level3ShowRockTutorial = false; // true right when entering the bird arena, until dismissed
@@ -158,6 +162,8 @@ level3EndDragonIsMoving = false;
 level3EndDragonChasing = false;  // hysteresis "intent to chase" flag, decoupled from animation
 level3EndDragonAnimFrame = 0;
 level3EndDragonAnimTimer = 0;
+level3BossAnimFrame = 0;
+level3BossAnimTimer = 0;
 
 
   deactivateLevel3Barrier();
@@ -308,6 +314,7 @@ function level3BossHitsWall() {
   }
 
   for (const t of solidTiles) {
+    if (HAZARD_LAYERS.includes(t.layerName)) continue; // spikes hurt on contact, but shouldn't block the charge itself
     const overlapsX =
       level3Boss.x + halfW > t.x && level3Boss.x - halfW < t.x + t.w;
     const overlapsY =
@@ -559,7 +566,7 @@ function updateLevel3BossFight() {
     return;
 
   if (level3Boss.hitFlashTimer > 0) level3Boss.hitFlashTimer--;
-  level3CamZoomTarget = playerInFishSpawn() ? 0.8 : 0.6; // ADDED to zoom out for the boss arena, but not while the player is still in the fish spawn
+  level3CamZoomTarget = playerInFishSpawn() ? 0.8 : 0.65; // ADDED to zoom out for the boss arena, but not while the player is still in the fish spawn
 
   updateLevel3BarrierGate();
 
@@ -586,7 +593,20 @@ function updateLevel3BossFight() {
 
   if (level3Boss.state === BOSS3_STATE.AIMING) {
     level3Boss.targetX = player.x;
-    level3Boss.targetY = player.y;
+    // Clamp how low the target can sit, but ONLY when the player is
+    // actually resting on real ground close by — the boss's hitbox is
+    // ~2.5 tiles tall, so aiming dead-center at a grounded player (whose
+    // own hitbox is tiny) would put the target partway INSIDE the floor,
+    // which made the boss register a wall-hit (and re-stun) almost the
+    // instant it left AIMING, never actually traveling anywhere. Using
+    // "nearest solid tile in either direction" here (instead of strictly
+    // downward, within a real distance) was picking up unrelated rock/
+    // ceiling formations elsewhere in the column, which is why the
+    // telegraph line/reticle sometimes skewed toward the wrong spot.
+    const halfH = level3Boss.h / 2;
+    const floorBelow = findFloorBelow(player.x, player.y);
+    const nearFloor = floorBelow !== null && floorBelow - player.y < TILE_SIZE * 1.5;
+    level3Boss.targetY = nearFloor ? Math.min(player.y, floorBelow - halfH - 4) : player.y;
     //dragon facing the fish when aiming
     level3Boss.facing = (player.x < level3Boss.x) ? "left" : "right";
 
@@ -606,6 +626,8 @@ function updateLevel3BossFight() {
       level3Boss.vy = (dy / d) * LEVEL3_BOSS_CONFIG.chargeSpeed;
       level3Boss.facing = dx < 0 ? "left" : "right";
       level3Boss.state = BOSS3_STATE.CHARGING;
+      level3BossChargeStartX = level3Boss.x;
+      level3BossChargeStartY = level3Boss.y;
     }
   } else if (level3Boss.state === BOSS3_STATE.CHARGING) {
     const prevX = level3Boss.x;
@@ -622,6 +644,31 @@ function updateLevel3BossFight() {
   level3Boss.state = BOSS3_STATE.STUNNED;
   level3Boss.timer = LEVEL3_BOSS_CONFIG.stunFrames;
 
+  // If this charge barely moved at all before "hitting a wall", the boss
+  // is either already overlapping solid ground the instant it started
+  // (e.g. a grounded player puts the aim target right at floor height),
+  // or it's bounced off a ceiling/overhang directly between it and the
+  // player in a tight tunnel. Either way, reverting to prevX/prevY doesn't
+  // help — that's the same stuck spot, and every future charge attempt
+  // would repeat this immediately, forever, with zero net progress. Ease
+  // it upward to break out, same as the FLY-phase chase does for a
+  // snagged corner, searching progressively further up since a single
+  // tile isn't always enough to clear a tall obstruction.
+  const chargeTraveled = dist(level3Boss.x, level3Boss.y, level3BossChargeStartX, level3BossChargeStartY);
+  if (chargeTraveled < TILE_SIZE) {
+    let clearTiles = null;
+    for (let tiles = 1; tiles <= 6; tiles++) {
+      if (!level3BossBoxOverlapsSolid(level3Boss.x, level3Boss.y - tiles * TILE_SIZE)) {
+        clearTiles = tiles;
+        break;
+      }
+    }
+    if (clearTiles !== null) {
+      level3BossNudging = true;
+      level3BossNudgeTargetY = level3Boss.y - clearTiles * TILE_SIZE;
+    }
+  }
+
   // Wall-slam damage only applies in the fish arena (phase 1 / SWIM).
   if (level3Phase === LEVEL3_PHASE.SWIM) {
     damageLevel3Boss(LEVEL3_BOSS_CONFIG.wallDamage);
@@ -629,6 +676,15 @@ function updateLevel3BossFight() {
   }
 }
   } else if (level3Boss.state === BOSS3_STATE.STUNNED) {
+    if (level3BossNudging) {
+      const diff = level3BossNudgeTargetY - level3Boss.y;
+      if (Math.abs(diff) < LEVEL3_BOSS_CONFIG.chargeSpeed) {
+        level3Boss.y = level3BossNudgeTargetY;
+        level3BossNudging = false;
+      } else {
+        level3Boss.y += Math.sign(diff) * LEVEL3_BOSS_CONFIG.chargeSpeed;
+      }
+    }
     level3Boss.timer--;
     if (level3Boss.timer <= 0) {
       level3Boss.state = BOSS3_STATE.AIMING;
@@ -781,27 +837,25 @@ function drawLevel3BossFightWorld() {
   // sprite renders on top of them, not the other way around.
   if (level3Phase === LEVEL3_PHASE.FLY) {
     push();
-    rectMode(CENTER);
+    imageMode(CENTER);
     for (const p of rockPedestals) {
       if (p.hasRock) {
-        fill(150, 150, 150);
-        noStroke();
-        ellipse(p.x, p.y, 45, 45); // matches the thrown-rock size below
+        if (stoneImg) image(stoneImg, p.x, p.y, 80, 80);
+        else { rectMode(CENTER); noStroke(); fill(150, 150, 150); ellipse(p.x, p.y, 45, 45); }
       }
     }
     for (const r of thrownRocks) {
-      fill(150, 150, 150);
-      noStroke();
-      ellipse(r.x, r.y, 45, 45);
+      if (stoneImg) image(stoneImg, r.x, r.y, 80, 80);
+      else { noStroke(); fill(150, 150, 150); ellipse(r.x, r.y, 45, 45); }
     }
     pop();
 
     // Carried-rock indicator above the player
     if (player.carryingRock) {
       push();
-      fill(150, 150, 150);
-      noStroke();
-      ellipse(player.x, player.y - 30, 14, 14);
+      imageMode(CENTER);
+      if (stoneImg) image(stoneImg, player.x, player.y + 40, 80, 80);
+      else { noStroke(); fill(150, 150, 150); ellipse(player.x, player.y - 30, 14, 14); }
       pop();
     }
   }
@@ -815,8 +869,11 @@ function drawLevel3BossFightWorld() {
   stroke(255, 60, 60, 160);
   strokeWeight(3);
 
-  // existing telegraph line
-  line(level3Boss.x, level3Boss.y, level3Boss.targetX, level3Boss.targetY);
+  // Telegraph line always points at the player's true center (matching the
+  // reticle below), even though the actual charge target (level3Boss.targetY)
+  // may be clamped slightly above a grounded player to avoid embedding in
+  // the floor — otherwise the line visibly missed the reticle's middle.
+  line(level3Boss.x, level3Boss.y, player.x, player.y);
 
   noFill();
 
@@ -844,12 +901,23 @@ function drawLevel3BossFightWorld() {
 }
 
 
+  // This boss reads the shared dragonAnimFrame/dragonAnimTimer, but those
+  // only ever advance inside drawDragon() (sketch.js), which returns
+  // immediately since the level-2-only `dragon` global is null in level 3
+  // — so the boss's sprite was frozen on frame 0 the whole fight. Give it
+  // its own clock instead, same pattern as level3EndDragon's animation.
+  level3BossAnimTimer++;
+  if (level3BossAnimTimer >= DRAGON_SPRITE.animSpeed) {
+    level3BossAnimTimer = 0;
+    level3BossAnimFrame = (level3BossAnimFrame + 1) % DRAGON_SPRITE.numFrames;
+  }
+
   const row =
     level3Boss.facing === "left"
       ? DRAGON_SPRITE.rows.flyingLeft
       : DRAGON_SPRITE.rows.flyingRight;
 
-  const sx = dragonAnimFrame * DRAGON_SPRITE.frameWidth;
+  const sx = level3BossAnimFrame * DRAGON_SPRITE.frameWidth;
   const sy = row * DRAGON_SPRITE.frameHeight;
   const dw = DRAGON_SPRITE.frameWidth * DRAGON_SPRITE.scale;
   const dh = DRAGON_SPRITE.frameHeight * DRAGON_SPRITE.scale;
@@ -859,9 +927,15 @@ function drawLevel3BossFightWorld() {
   const bossFlashedOut =
     level3Boss.hitFlashTimer > 0 && floor(level3Boss.hitFlashTimer / 6) % 2 === 0;
 
-  if (dragonSheet && !bossFlashedOut) {
+  // Angry sprite while telegraphing/mid-charge — same sheet layout as the
+  // normal dragonSheet, just an angrier expression.
+  const isAboutToCharge =
+    level3Boss.state === BOSS3_STATE.AIMING || level3Boss.state === BOSS3_STATE.CHARGING;
+  const bossSheet = isAboutToCharge && angryDragonSheet ? angryDragonSheet : dragonSheet;
+
+  if (bossSheet && !bossFlashedOut) {
     image(
-      dragonSheet,
+      bossSheet,
       level3Boss.x,
       level3Boss.y,
       dw,
@@ -935,7 +1009,7 @@ function drawLevel3HUD() {
   textAlign(CENTER, CENTER);
   textFont("monospace");
   textSize(11);
-  text(`HP  ${hpValue} / 100`, hpBx + hpBarW / 2, hpBy + hpBarH / 2);
+  text(`Your HP  ${hpValue} / 100`, hpBx + hpBarW / 2, hpBy + hpBarH / 2);
   pop();
 }
 
@@ -944,11 +1018,11 @@ function drawLevel3HUD() {
   // more noticeable than a small corner HUD label.
   if (level3Phase === LEVEL3_PHASE.FLY && player.carryingRock) {
     push();
-    fill(255);
+    fill(20, 120, 10);
     textAlign(CENTER, CENTER);
     textFont("monospace");
     textSize(16);
-    text("Homing rock ready — [E] to throw", width / 2, height - 40);
+    text("Homing rock ready — [E] to throw", width / 2, height / 2);
     pop();
   }
 
@@ -962,6 +1036,7 @@ function level3BossBoxOverlapsSolid(x, y) {
   const halfW = level3Boss.w / 2;
   const halfH = level3Boss.h / 2;
   for (const t of solidTiles) {
+    if (HAZARD_LAYERS.includes(t.layerName)) continue; // spikes hurt on contact, but shouldn't block movement
     const overlapX = Math.min(x + halfW, t.x + t.w) - Math.max(x - halfW, t.x);
     const overlapY = Math.min(y + halfH, t.y + t.h) - Math.max(y - halfH, t.y);
     if (overlapX > 0 && overlapY > 0) return true;
@@ -1080,6 +1155,11 @@ function initLevel3Epilogue() {
   player.vx = 0;
   player.vy = 0;
   player.form = FORM_HUMAN;
+  // handleInput() (the only place that normally recomputes this) is locked
+  // out during the white-flash transition, so if the player was mid-stride
+  // when it started, isMoving stayed stuck true and the walking animation
+  // kept playing after they landed here, frozen in place.
+  player.isMoving = false;
 
   snapCameraToPlayer();
   level3CamZoomTarget = 0.8; // back to normal — no more boss-fight zoom
@@ -1125,6 +1205,21 @@ function playPortalOpeningSoundOnce() {
 // terrain of a different height. Picking the tile nearest nearY (rather than
 // the column's global topmost tile) avoids snapping to an unrelated tile
 // far away, like a cave ceiling higher up the same column.
+// Nearest solid tile's top edge strictly BELOW y in the given column, or
+// null if there isn't one — unlike findGroundYAt() (which picks whichever
+// tile is nearest in either direction, useful for re-grounding after a
+// teleport), this only looks downward so it can't mistake a ceiling/rock
+// formation above the player for "the floor."
+function findFloorBelow(x, y) {
+  let best = null;
+  for (const t of solidTiles) {
+    if (x >= t.x && x < t.x + t.w && t.y >= y) {
+      if (best === null || t.y < best) best = t.y;
+    }
+  }
+  return best;
+}
+
 function findGroundYAt(x, nearY) {
   let best = null;
   let bestDist = Infinity;
@@ -1260,14 +1355,14 @@ function updateLevel3Epilogue() {
     }
   }
 
-  // Vertical: only RISES, and only once the player has actually landed on
-  // solid ground higher than the last step it tracked — not while they're
-  // mid-air on a jump arc, which would otherwise bounce the dragon up and
-  // back down every hop instead of just following real elevation changes
-  // (e.g. climbing a staircase).
+  // Vertical: tracks the player's ground level (2 tiles above it), both
+  // rising and lowering — only updates once they've actually landed on
+  // solid ground, not while they're mid-air on a jump arc, which would
+  // otherwise bounce the dragon up and back down every hop instead of
+  // just following real elevation changes (e.g. a staircase, in either
+  // direction).
   if (player.isGrounded) {
-    const candidateY = player.y - 2 * TILE_SIZE;
-    if (candidateY < level3MimicTargetY) level3MimicTargetY = candidateY;
+    level3MimicTargetY = player.y - 2 * TILE_SIZE;
   }
   const dy = level3MimicTargetY - level3EndDragon.y;
   const yStep = Math.min(LEVEL3_MIMIC_CONFIG.followSpeed, Math.abs(dy));
@@ -1304,8 +1399,15 @@ function drawLevel3EndDragon() {
   const dw = DRAGON_SPRITE.frameWidth * DRAGON_SPRITE.scale;
   const dh = DRAGON_SPRITE.frameHeight * DRAGON_SPRITE.scale;
 
-  if (dragonSheet) {
-    image(dragonSheet, level3EndDragon.x, level3EndDragon.y, dw, dh,
+  // After choosing N, the dragon turns on the player — same angry sprite
+  // used for the boss-fight charge telegraph.
+  const endDragonSheet =
+    level3EpilogueState === LEVEL3_EPILOGUE_STATE.CHASING && angryDragonSheet
+      ? angryDragonSheet
+      : dragonSheet;
+
+  if (endDragonSheet) {
+    image(endDragonSheet, level3EndDragon.x, level3EndDragon.y, dw, dh,
           sx, sy, DRAGON_SPRITE.frameWidth, DRAGON_SPRITE.frameHeight);
   }
 
