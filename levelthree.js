@@ -948,7 +948,7 @@ function initLevel3Epilogue() {
 function playPortalOpeningSoundOnce() {
   if (portalUnlocked && !portalOpeningPlayed) {
     if (portalOpeningSound) portalOpeningSound.play();
-    showFadeMessage("A portal has opened [...]");
+    showFadeMessage("A portal has opened somewhere...");
     portalOpeningPlayed = true;
   }
 }

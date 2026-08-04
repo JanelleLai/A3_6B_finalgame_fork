@@ -163,7 +163,7 @@ const DRAGON_SLEEPING_SPRITE = {
   frameHeight: 0,
   numFrames: 6,
   animSpeed: 15,
-  scale: 0.35,
+  scale: 0.32,
 };
 
 let dragonSheet;
@@ -2996,7 +2996,7 @@ function unlockPortal() {
   portalUnlocked = portalIsUnlocked();
   if (portalUnlocked && !portalOpeningPlayed) {
     if (portalOpeningSound) portalOpeningSound.play();
-    showFadeMessage("A portal has opened [...]");
+    showFadeMessage("A portal has opened somewhere...");
     portalOpeningPlayed = true;
   }
 }
