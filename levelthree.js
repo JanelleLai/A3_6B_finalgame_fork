@@ -25,7 +25,7 @@ const BOSS3_STATE = {
 // ADDED — reuse chargeSpeed's neighbor; tune independently if it feels too fast/slow
 const LEVEL3_BOSS_CONFIG = {
   maxHealth: 1000,
-  wallDamage: 50,
+  wallDamage: 30,
   chargeSpeed: 6,
   chaseSpeed: 6.5,   // FLY-phase pursuit speed — increased from 4
   telegraphFrames: 90,
@@ -97,7 +97,8 @@ let level3EpilogueState = LEVEL3_EPILOGUE_STATE.NONE;
 let level3EndDragon = null;       // {x, y, w, h, facing}
 let level3DialogueLines = [];
 let level3DialogueIndex = 0;
-let level3EpilogueLineTimer = 0;  // transient "This will work." line after choosing Y
+let level3EpilogueLineTimer = 0;  // transient dragon remark right after the Y/N choice
+let level3EpilogueLineText = "";  // which remark to show — set alongside the timer above
 
 
 
@@ -198,7 +199,7 @@ level3BossAnimTimer = 0;
   // Gate at the tunnel mouth — solid once the boss wakes, so the player
   // can't retreat out of the fight and the boss can't wander into the tunnel.
   const barrierThickness = TILE_SIZE * 0.5;
-const barrierOffsetX = 1.5 * TILE_SIZE; // ADDED — shift barrier away from the entrance
+const barrierOffsetX = 2 * TILE_SIZE; // shifted half a tile further right from 1.5
 level3Barrier = {
   x: triggerX - barrierThickness / 2 + barrierOffsetX,   // CHANGED
   y: arena ? arena.bounds.y : 0,
@@ -373,7 +374,7 @@ function damageLevel3Boss(amount) {
   level3DamageSoundIndex++;
 
   if (level3Phase === LEVEL3_PHASE.SWIM && level3Boss.hp <= 800) {
-    startLevel3Transition("Let's change up the scenery.", enterLevel3FlyPhase);
+    startLevel3Transition("The dragon raises its talons and transforms the terrain around you, bending the world to its will. \"quote,\" it spits.", enterLevel3FlyPhase);
     return;
   }
 
@@ -381,7 +382,7 @@ function damageLevel3Boss(amount) {
     stopAllGameSounds();
     level3BossDefeated = true;
     level3Boss = null;
-    startLevel3Transition("Nothing stays the same. Can you adapt?", moveToLevel3EndArea);
+    startLevel3Transition("The dragon transforms the world again, sweeping you to another environment, \"Adapt or die or smt.\"", moveToLevel3EndArea);
     return;
   }
 
@@ -717,7 +718,7 @@ text("to throw at the dragon (auto-aimed).", width / 2, height / 2 + 10);
 
   fill(200);
   textSize(13);
-  text("Press any key to continue", width / 2, height / 2 + 35);
+  text("Press [Enter] to continue", width / 2, height / 2 + 35);
   pop();
 }
 
@@ -987,13 +988,13 @@ function drawLevel3HUD() {
 
   // Player HP bar — bottom center, shorter than the boss bar (which is
   // 300 wide) but same style/opacity so it's equally visible. Replaces the
-  // old heart icons; player.maxHealth is 5, so each hit (health--) is
-  // exactly 20 of this bar's 100.
+  // old heart icons; player.maxHealth is 10, so each hit (health--) is
+  // exactly 10 of this bar's 100.
   const hpBarW = 200;
   const hpBarH = 16;
   const hpBx = width / 2 - hpBarW / 2;
   const hpBy = height - 70;
-  const hpValue = max(player.health, 0) * 20;
+  const hpValue = max(player.health, 0) * 10;
 
   push();
   noStroke();
@@ -1260,6 +1261,7 @@ function debugTriggerLevel3EpilogueChoice(win) {
       level3EndDragon.facing = gap < 0 ? "left" : "right";
       level3MimicTargetY = level3EndDragon.y;
     }
+    level3EpilogueLineText = "This will work. Let us depart together.";
     level3EpilogueLineTimer = 150;
     portalUnlocked = true;
   } else {
@@ -1268,11 +1270,18 @@ function debugTriggerLevel3EpilogueChoice(win) {
     if (humanBGsound && humanBGsound.isPlaying()) humanBGsound.stop();
     if (chaseMusic && !chaseMusic.isPlaying()) chaseMusic.loop();
     if (dragonGrowl2) dragonGrowl2.play();
+    level3EpilogueLineText = "So this is what you have chosen.";
+    level3EpilogueLineTimer = 150;
   }
 }
 
 
 function updateLevel3Epilogue() {
+  // Called unconditionally every frame — without this, leftover epilogue
+  // state (e.g. still "chasing"/"mimic" from a finished run) kept updating
+  // level3EndDragon's AI using level-3 coordinates after debug-jumping to
+  // a different level entirely.
+  if (currentScreen !== LEVEL_THREE) return;
   if (level3EpilogueState === LEVEL3_EPILOGUE_STATE.NONE || !level3EndDragon) return;
 
   if (level3EpilogueState === LEVEL3_EPILOGUE_STATE.IDLE) {
@@ -1376,6 +1385,11 @@ function updateLevel3Epilogue() {
 }
 
 function drawLevel3EndDragon() {
+  // Called unconditionally every frame regardless of screen — without this,
+  // leftover epilogue state from a finished level 3 run (e.g. still "mimic"
+  // after debug-jumping away) kept rendering the dragon at its level-3
+  // world coordinates on top of whatever level you jumped to instead.
+  if (currentScreen !== LEVEL_THREE) return;
   if (!level3EndDragon || level3EpilogueState === LEVEL3_EPILOGUE_STATE.NONE) return;
   if (level3EpilogueState === LEVEL3_EPILOGUE_STATE.DEAD) return;
 
@@ -1421,11 +1435,14 @@ function drawLevel3DialogueUI() {
     level3EpilogueLineTimer > 0;
   if (!showing) return;
 
+  // Anchored to the TOP of the screen instead of the bottom, since the
+  // player/dragon sprites are down at the bottom and the box used to
+  // cover them.
   const boxH = height * 0.32;
   push();
   noStroke();
   fill(0, 0, 0, 200);
-  rect(0, height - boxH, width, boxH);
+  rect(0, 0, width, boxH);
 
   textFont("monospace");
   textAlign(LEFT, TOP);
@@ -1434,38 +1451,39 @@ function drawLevel3DialogueUI() {
     const line = level3DialogueLines[level3DialogueIndex];
     fill(230, 200, 80);
     textSize(14);
-    text(line.speaker, 24, height - boxH + 16);
+    text(line.speaker, 24, 16);
     fill(255);
     textSize(16);
-    text(line.text, 24, height - boxH + 40, width - 48);
+    text(line.text, 24, 40, width - 48);
     fill(200);
     textSize(11);
     textAlign(RIGHT, BOTTOM);
-    text("[Enter] Continue", width - 20, height - 12);
+    text("[Enter] Continue", width - 20, boxH - 12);
   } else if (level3EpilogueState === LEVEL3_EPILOGUE_STATE.CHOICE) {
     fill(230, 200, 80);
     textSize(14);
-    text("Dragon", 24, height - boxH + 16);
+    text("Dragon", 24, 16);
     fill(255);
     textSize(16);
-    text("I need something from you first.", 24, height - boxH + 40, width - 48);
+    text("I need something from you first.", 24, 40, width - 48);
     textSize(14);
-    text('[Y] Offer a rune        [N] Attack the dragon', 24, height - boxH + 80);
+    text('[Y] Offer a rune        [N] Attack the dragon', 24, 80);
   } else if (level3EpilogueLineTimer > 0) {
     fill(230, 200, 80);
     textSize(14);
-    text("Dragon", 24, height - boxH + 16);
+    text("Dragon", 24, 16);
     fill(255);
     textSize(16);
-    text("This will work. Let us depart together.", 24, height - boxH + 40);
+    text(level3EpilogueLineText, 24, 40);
     level3EpilogueLineTimer--;
     // Portal is already mechanically unlocked (set the moment Y was chosen)
     // — this is just the sound/message cue, timed to land right after the
-    // line finishes rather than talking over it.
-    if (level3EpilogueLineTimer === 0 && !portalOpeningPlayed) {
+    // line finishes rather than talking over it. Gated on portalUnlocked so
+    // the N-choice's own remark (portal stays locked) doesn't also fire it.
+    if (level3EpilogueLineTimer === 0 && portalUnlocked && !portalOpeningPlayed) {
       if (portalOpeningSound) portalOpeningSound.play();
       if (portalChime) portalChime.play();
-  
+
       showFadeMessage("A portal has opened...");
       portalOpeningPlayed = true;
     }

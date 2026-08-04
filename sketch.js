@@ -276,8 +276,8 @@ let player = {
   isMoving: false, // Tracks whether player is currently moving to trigger animation
 
   shootTimer: 0,
-  health: 5,
-  maxHealth: 5,
+  health: 10,
+  maxHealth: 10, // only level 3's dragon-hit/HP-bar system reads this — levels 1/2 use instant hazard-death instead
   invincible: false,
   invincibleTimer: 0,
   bounceVX: 0,
@@ -1851,6 +1851,25 @@ function checkWaterTransform() {
   }
 }
 
+const AMBIENT_FADE_SECONDS = 0.3; // crossfade duration for area/form ambience swaps
+
+// Generic crossfade for a looping ambience track: fades up to
+// targetVolume while active, fades down to (but doesn't stop at) 0
+// otherwise — left looping silently so fading back in later doesn't need
+// to re-seek/restart the track.
+function updateAmbientLoop(sound, shouldPlay, targetVolume) {
+  if (!sound) return;
+  if (shouldPlay) {
+    if (!sound.isPlaying()) {
+      sound.setVolume(0);
+      sound.loop();
+    }
+    sound.fade(targetVolume, AMBIENT_FADE_SECONDS);
+  } else if (sound.isPlaying()) {
+    sound.fade(0, AMBIENT_FADE_SECONDS);
+  }
+}
+
 function updateHumanBGSound() {
   if (!humanBGsound) return;
 
@@ -1863,16 +1882,7 @@ function updateHumanBGSound() {
       level3EpilogueState === LEVEL3_EPILOGUE_STATE.DEAD);
 
   const shouldPlay = player.form === FORM_HUMAN && !inLevel3EpilogueOverride;
-
-  if (shouldPlay) {
-    if (!humanBGsound.isPlaying()) {
-      humanBGsound.loop();
-    }
-  } else {
-    if (humanBGsound.isPlaying()) {
-      humanBGsound.stop();
-    }
-  }
+  updateAmbientLoop(humanBGsound, shouldPlay, 1);
 }
 
 function updateBirdBGSound() {
@@ -1881,16 +1891,7 @@ function updateBirdBGSound() {
   // Level 3's bird form is the boss-fight phase — chaseMusic plays there
   // instead, so this generic ambience shouldn't compete with it.
   const shouldPlay = player.form === FORM_BIRD && currentScreen !== LEVEL_THREE;
-
-  if (shouldPlay) {
-    if (!birdBGsound.isPlaying()) {
-      birdBGsound.loop();
-    }
-  } else {
-    if (birdBGsound.isPlaying()) {
-      birdBGsound.stop();
-    }
-  }
+  updateAmbientLoop(birdBGsound, shouldPlay, 0.15);
 }
 
 function updateWalkingSound() {
@@ -1918,18 +1919,8 @@ function updateFishAreaSound() {
   if (!fishareasound || !fishBGsound) return; // use whatever variable name you declared
 
   const shouldPlay = playerInWater();
-
-  if (shouldPlay) {
-    if (!fishareasound.isPlaying()) {
-      fishareasound.loop();
-      fishBGsound.loop();
-    }
-  } else {
-    if (fishareasound.isPlaying()) {
-      fishareasound.stop();
-      fishBGsound.stop();
-    }
-  }
+  updateAmbientLoop(fishareasound, shouldPlay, 0.15);
+  updateAmbientLoop(fishBGsound, shouldPlay, 0.15);
 }
 
 // ------------------------------------------------------------
@@ -2079,7 +2070,15 @@ function enforceLocationForm() {
     player.x < bird.bounds.x + bird.bounds.w &&
     player.y < bird.bounds.y + bird.bounds.h;
 
-  if (inBirdAreaBounds && player.form !== FORM_BIRD) {
+  // Only re-trigger the human->bird transform going forward — a fish who
+  // surfaces (leaves water) while still inside the bird area's bounding
+  // box shouldn't get bounced back to bird form, since FORM_ORDER is a
+  // one-way progression (human -> bird -> fish).
+  if (
+    inBirdAreaBounds &&
+    player.form !== FORM_BIRD &&
+    FORM_ORDER.indexOf(player.form) < FORM_ORDER.indexOf(FORM_BIRD)
+  ) {
     player.form = FORM_BIRD;
   }
 }
@@ -3230,6 +3229,7 @@ function checkSafeZone() {
     if (overlapsX && overlapsY) {
       safeZoneReached = true;
       if (chaseMusic && chaseMusic.isPlaying()) chaseMusic.fade(0, 2);
+      chaseCamZoomTarget = 0.8; // back to idle zoom — the chase is over
       break;
     }
   }
@@ -3818,6 +3818,17 @@ function handleInput() {
       level3EpilogueState === LEVEL3_EPILOGUE_STATE.CHOICE)
   ) {
     player.isMoving = false;
+    // Still apply gravity — otherwise a player who's mid-air (mid-jump)
+    // right as dialogue starts gets suspended there, frozen until it ends,
+    // instead of just continuing to fall like normal.
+    if (!player.isGrounded) {
+      player.vx = 0;
+      const currentGravity =
+        activeCheckpointIndex >= 0 ? GRAVITY_AFTER_CHECKPOINT : GRAVITY;
+      player.vy += player.form === FORM_HUMAN ? HUMAN_GRAVITY : currentGravity;
+      player.vy = constrain(player.vy, -TERMINAL_VELOCITY, TERMINAL_VELOCITY);
+      player.y += player.vy;
+    }
     return;
   }
   player.isMoving = false;
@@ -4002,7 +4013,9 @@ function drawPlayer() {
 // ------------------------------------------------------------
 function keyPressed() {
   if (level3ShowRockTutorial) {
-    level3ShowRockTutorial = false;
+    if (key === "Enter") {
+      level3ShowRockTutorial = false;
+    }
     return; // swallow this keypress so it doesn't also jump/throw
   }
 
@@ -4052,6 +4065,7 @@ if (currentScreen === LEVEL_THREE && level3EpilogueState === LEVEL3_EPILOGUE_STA
     level3EndDragonIsMoving = false;
   }
 
+  level3EpilogueLineText = "This will work. Let us depart together.";
   level3EpilogueLineTimer = 150;
   portalUnlocked = true;
   return;
@@ -4062,6 +4076,8 @@ if (currentScreen === LEVEL_THREE && level3EpilogueState === LEVEL3_EPILOGUE_STA
     if (humanBGsound && humanBGsound.isPlaying()) humanBGsound.stop();
     if (chaseMusic && !chaseMusic.isPlaying()) chaseMusic.loop();
     if (dragonGrowl2) dragonGrowl2.play();
+    level3EpilogueLineText = "So this is what you have chosen.";
+    level3EpilogueLineTimer = 150;
     return;
   }
   return;
@@ -4078,8 +4094,12 @@ if (currentScreen === LEVEL_THREE && level3EpilogueState === LEVEL3_EPILOGUE_STA
     throwLevel3Rock();
   }
 
+  // isGrounded (not just the cooldown) gates this — without it, the
+  // cooldown alone let the player jump again every 30 frames while still
+  // airborne, effectively double-jumping and "sticking" to walls by
+  // repeatedly re-boosting upward mid-air right next to one.
   const canJump =
-    player.form === FORM_HUMAN && !playerInWater() && player.jumpCooldown <= 0;
+    player.form === FORM_HUMAN && !playerInWater() && player.jumpCooldown <= 0 && player.isGrounded;
 
   if (
     (key === "w" || key === "W" || keyCode === 87 || keyCode === UP_ARROW ||
