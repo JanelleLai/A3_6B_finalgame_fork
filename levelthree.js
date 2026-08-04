@@ -578,7 +578,7 @@ function updateLevel3BossFight() {
       const d = Math.sqrt(dx * dx + dy * dy) || 1;
 
       //adding the anger state of dragon
-      if (dragonGrowl) dragonGrowl.play();
+      if (dragonHiss) dragonHiss.play();
       
       level3Boss.vx = (dx / d) * LEVEL3_BOSS_CONFIG.chargeSpeed;
       level3Boss.vy = (dy / d) * LEVEL3_BOSS_CONFIG.chargeSpeed;

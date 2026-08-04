@@ -329,6 +329,9 @@ let dragonTriggerRuneKey = null; // getWorldTileKey() of the specific rune that 
 let dragonTriggerRunePos = null; // {x,y} world center of that rune — kept for the debug overlay below
 let chaseMusic; 
 let dragonGrowl;
+let dragonScreech;
+let dragonHurt;
+let dragonHiss;
 
 let chaseCamZoomTarget = 0.8; // camZoom eases toward this every frame (0.8 idle, 0.7 chasing)
 let level3CamZoomTarget = 0.8; 
@@ -1024,6 +1027,9 @@ function preload() {
     chaseMusic.setVolume(0.25);
   }
   dragonGrowl = loadSound("assets/sounds/dragongrowl.mp3");
+  dragonScreech = loadSound("assets/sounds/dragonScreech.mp3");
+  dragonHurt = loadSound("assets/sounds/dragonHurt.mp3");
+  dragonHiss = loadSound("assets/sounds/dragonHiss.mp3");
   batsound = loadSound("assets/sounds/bats.mp3");
 
 
@@ -1922,6 +1928,8 @@ function stopAllGameSounds() {
     diesound,
     chaseMusic,
     dragonGrowl,
+    dragonScreech,
+    dragonHurt,
     batsound,
   ];
   for (const s of sounds) {
@@ -2610,7 +2618,7 @@ function wakeDragon() {
   chaseCamZoomTarget = 0.7;
   if (chaseMusic && !chaseMusic.isPlaying()) chaseMusic.loop();
   console.log("Dragon woke up — chase started.");
-dragonGrowl.play();
+dragonScreech.play();
 
   dragonPath = [];
 dragonPathIndex = 0;
