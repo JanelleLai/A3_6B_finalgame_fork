@@ -328,6 +328,7 @@ let dragonSpawnTiles = []; // raw "dragon spawn" layer tiles for the current lev
 let dragonSpawnPoint = null; // {x,y} centroid of dragonSpawnTiles — the sleeping position
 let dragonTriggerRuneKey = null; // getWorldTileKey() of the specific rune that wakes it
 let dragonTriggerRunePos = null; // {x,y} world center of that rune — kept for the debug overlay below
+let batTriggerRuneKey = null; // getWorldTileKey() of the specific rune that wakes the bats — identity-based, same pattern as dragonTriggerRuneKey
 let chaseMusic;
 
 // Starts chaseMusic if it isn't already looping, AND resets its volume back
@@ -2803,9 +2804,11 @@ function setupBatsForLevel(levelId) {
   bats = [];
   batsWoken = false;
   secondRuneKey = null;
+  batTriggerRuneKey = null;
 
   if (levelId !== LEVEL_TWO) return;
 
+  let sumX = 0, sumY = 0;
   for (const t of batSpawnTiles) {
     const spawnX = t.x + t.w / 2;
     const spawnY = t.y + t.h / 2;
@@ -2817,6 +2820,28 @@ function setupBatsForLevel(levelId) {
       state: BAT_STATE.SLEEPING,
       speed: PLAYER_SPEED * BAT_SPEED_MULTIPLIER, // 150% of the bird's move speed
     });
+    sumX += spawnX;
+    sumY += spawnY;
+  }
+
+  // "The rune gem" that wakes them — same identity-based approach as
+  // dragonTriggerRuneKey (closest rune to the bats' spawn centroid),
+  // instead of assuming it's always whichever rune happens to be the
+  // player's 2nd pickup by raw count — that broke whenever the player's
+  // path collected the runes in a different order.
+  if (batSpawnTiles.length > 0) {
+    const spawnCentroidX = sumX / batSpawnTiles.length;
+    const spawnCentroidY = sumY / batSpawnTiles.length;
+    let closestDist = Infinity;
+    for (const k of keyTilesList) {
+      const cx = k.x + k.w / 2;
+      const cy = k.y + k.h / 2;
+      const d = dist(cx, cy, spawnCentroidX, spawnCentroidY);
+      if (d < closestDist) {
+        closestDist = d;
+        batTriggerRuneKey = getWorldTileKey(k.x, k.y);
+      }
+    }
   }
 }
 
@@ -3312,8 +3337,11 @@ function checkKeys() {
       keyCollected++;
       unlockPortal();
 
-    // Bats (Level 2): the 2nd rune spikes noise to max and wakes them.
-      if (currentScreen === LEVEL_TWO && keyCollected === 2 && !batsWoken) {
+    // Bats (Level 2): this specific rune (closest to the bats' spawn,
+    // identified in setupBatsForLevel()) spikes noise to max and wakes
+    // them — not just "whichever rune happens to be the 2nd pickup",
+    // which broke whenever the player's path collected them out of order.
+      if (currentScreen === LEVEL_TWO && mapKey === batTriggerRuneKey && !batsWoken) {
         secondRuneKey = mapKey; // remember which physical rune this was
         player.noiseLevel = NOISE_LEVEL_MAX;
         wakeAllBats();
