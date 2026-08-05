@@ -455,7 +455,7 @@ function drawLevel3Transition() {
     textFont("monospace");
     textAlign(CENTER, CENTER);
     textSize(18);
-    text(`"${level3TransitionText}"`, width / 2, height / 2);
+    text(level3TransitionText, width / 2, height / 2);
   }
   pop();
 }

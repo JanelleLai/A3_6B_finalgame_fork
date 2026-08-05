@@ -121,5 +121,18 @@ Post-Showcase 2 planned improvements:
 
 [7] BreakingCopyright — Royalty Free Music. 2018. Epic Battle Music (No Copyright) "Dragon Castle" by Makai-symphony. YouTube. Retrieved July 7, 2026 from https://www.youtube.com/watch?v=9gBTKiVqprE
 
+// new ones from level 2 nd 3
 
-https://pixabay.com/sound-effects/film-special-effects-dragon-growl-37570/ 
+[8] kalsstockmedia. 2025. Sudden Shock Reveal Bass. Pixabay. Retreived July 30, 2026 from https://pixabay.com/sound-effects film-special-effects-sudden-shock-reveal-bass-283846/  
+
+[9] spookymodem (Freesound).2022. Falling Rock. Pixabay. Retreived july 30, 2026 from https://pixabay.com/sound-effects/film-special-effects-falling-rock-105396/
+
+[10] DRAGON-STUDIO. Bird Wings. 2026. Pixabay. Retreived July 30, 2026 from https://pixabay.com/sound-effects/nature-bird-wings-463212/
+
+[11] Tatamusic. Battle Warrior Fighting Drums. 2026. Pixabay. Retreived August 1, 2026 from https://pixabay.com/sound-effects/film-special-effects-battle-warrior-fighting-drums-478210/
+
+[12] Sonican. Enchanted Fantasy - 30 Sec Classical Music. 2026. Pixabay. Retreived August 1, 2026 from https://pixabay.com/sound-effects/musical-enchanted-fantasy-30-sec-classical-music-535322/
+
+[13] freesound_gamestudio. Appear Magic. 2025. Pixabay. Retreived August 2, 2026 from https://pixabay.com/sound-effects/film-special-effects-appear-magic-384915/
+
+[14] Antimsounds (Freesound). Dragon growl. 2022. Pixabay. Retreived 2august, 2026 from https://pixabay.com/sound-effects/film-special-effects-dragon-growl-37570/ 
