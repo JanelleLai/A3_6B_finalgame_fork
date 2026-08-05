@@ -267,7 +267,10 @@ function activateLevel3Barrier() {
   if (level3BarrierActive || !level3Barrier) return;
   solidTiles.push(level3Barrier);
   level3BarrierActive = true;
-  if (epilogueMusic && !epilogueMusic.isPlaying()) epilogueMusic.loop();
+  // This is the fish-arena boss fight starting, not the epilogue — was
+  // playing epilogueMusic by mistake, so the fish phase never had chase
+  // music (only the bird phase did, once that got its own fix).
+  if (chaseMusic && !chaseMusic.isPlaying()) chaseMusic.loop();
 }
 
 function deactivateLevel3Barrier() {
@@ -579,6 +582,12 @@ function updateLevel3BossFight() {
   if (!level3Boss || currentScreen !== LEVEL_THREE || gameState !== STATE_PLAY)
     return;
 
+  // Don't let the boss wake/telegraph/charge/chase while the screen is
+  // still white/fading from a stage transition — the rematch's checkpoint
+  // spawn can land outside the "fish spawn" safe pocket below, which
+  // otherwise let it start attacking before the player could even see.
+  if (level3TransitionActive) return;
+
   if (level3Boss.hitFlashTimer > 0) level3Boss.hitFlashTimer--;
   level3CamZoomTarget = playerInFishSpawn() ? 0.8 : 0.65; // ADDED to zoom out for the boss arena, but not while the player is still in the fish spawn
 
@@ -765,6 +774,10 @@ function updateLevel3Rocks() {
     if (dist(r.x, r.y, level3Boss.x, level3Boss.y) < ROCK_CONFIG.hitRadius) {
       damageLevel3Boss(ROCK_CONFIG.damage);
       thrownRocks.splice(i, 1);
+      // A killing hit sets level3Boss to null — with multiple rocks
+      // in flight in the same frame, the next iteration's level3Boss.x
+      // would otherwise crash on a null boss that no longer exists.
+      if (!level3Boss) return;
       continue;
     }
     if (r.life <= 0) thrownRocks.splice(i, 1);
@@ -1236,17 +1249,11 @@ function applyLevel3Rematch() {
   if (epilogueMusic && epilogueMusic.isPlaying()) epilogueMusic.stop();
   if (chaseMusic && chaseMusic.isPlaying()) chaseMusic.stop();
 
-  // Dropped in the middle of the battle this time (right where the boss
-  // itself spawns) instead of swimming in from the arena's edge.
-  const arena = findArea(levelAreas, "fish");
-  const bossSpawn = getLevel3BossSpawnPoint(arena);
-  if (bossSpawn) {
-    player.x = bossSpawn.x;
-    player.y = bossSpawn.y;
-  } else {
-    player.x = LEVELS[LEVEL_THREE].playerStart.x;
-    player.y = LEVELS[LEVEL_THREE].playerStart.y;
-  }
+  // Same checkpoint used for a real death-respawn in the fish phase
+  // (restartLevel3Stage()), not the middle of the arena.
+  const spawn = lastCheckpoint || playerStart;
+  player.x = spawn.x;
+  player.y = spawn.y;
   player.vx = 0;
   player.vy = 0;
   player.form = FORM_FISH;
@@ -1468,7 +1475,26 @@ function drawLevel3EndDragon() {
   if (currentScreen !== LEVEL_THREE) return;
   if (!level3EndDragon || level3EpilogueState === LEVEL3_EPILOGUE_STATE.NONE) return;
   if (level3EpilogueState === LEVEL3_EPILOGUE_STATE.DEAD) return;
-
+  // If the final "The End" fade is active, render a single static frame
+  // and don't advance the dragon animation or movement so it appears frozen.
+  if (typeof level3EndScreenFadeActive !== 'undefined' && level3EndScreenFadeActive) {
+    push();
+    imageMode(CENTER);
+    const row = level3EndDragon.facing === "left"
+      ? DRAGON_SPRITE.rows.idleLeft
+      : DRAGON_SPRITE.rows.idleRight;
+    const sx = 0; // first frame
+    const sy = row * DRAGON_SPRITE.frameHeight;
+    const dw = DRAGON_SPRITE.frameWidth * DRAGON_SPRITE.scale;
+    const dh = DRAGON_SPRITE.frameHeight * DRAGON_SPRITE.scale;
+    const endDragonSheet = dragonSheet; // use normal sheet for static pose
+    if (endDragonSheet) {
+      image(endDragonSheet, level3EndDragon.x, level3EndDragon.y, dw, dh,
+            sx, sy, DRAGON_SPRITE.frameWidth, DRAGON_SPRITE.frameHeight);
+    }
+    pop();
+    return;
+  }
   push();
   imageMode(CENTER);
 
@@ -1508,11 +1534,13 @@ function drawLevel3EndDragon() {
 // screen (above the player/dragon sprites, which sit near the bottom).
 function drawLevel3DialogueImage(img) {
   if (!img) return;
-  const targetW = width * 0.85;
+  // Smaller and closer to the very top — at the old 0.85 width these
+  // covered a third of the screen and hid the player/dragon below.
+  const targetW = width * 0.65; // 0.5 * 1.3
   const scale = targetW / img.width;
   const targetH = img.height * scale;
   imageMode(CENTER);
-  image(img, width / 2, targetH / 2 + 10, targetW, targetH);
+  image(img, width / 2, targetH / 2 + 4, targetW, targetH);
 }
 
 function drawLevel3DialogueUI() {
@@ -1533,15 +1561,9 @@ function drawLevel3DialogueUI() {
     );
   } else if (level3EpilogueState === LEVEL3_EPILOGUE_STATE.CHOICE) {
     if (level3SecondEncounter) {
-      // Only one option this time, no art for it — small plain-text prompt.
-      const boxH = height * 0.15;
-      noStroke();
-      fill(0, 0, 0, 200);
-      rect(0, 0, width, boxH);
-      fill(255);
-      textSize(16);
-      textAlign(LEFT, TOP);
-      text("[Y] Yes, I'm done fighting.", 24, 20);
+      // No separate choice prompt this time — just stay on the last
+      // dialogue line ("Yes, I'm done fighting."); [Enter] concludes it.
+      drawLevel3DialogueImage(dialogueImgs2[dialogueImgs2.length - 1]);
     } else {
       drawLevel3DialogueImage(dialogueWithOptionsImg);
     }

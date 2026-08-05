@@ -558,7 +558,7 @@ function drawFadeMessage() {
   textFont("monospace");
   textAlign(CENTER, CENTER);
   textSize(16);
-  text(fadeMessageText, width / 2, height / 2);
+  text(fadeMessageText, width / 2, height / 2 - 30);
   pop();
 }
 
@@ -832,6 +832,8 @@ function debugWinLevel(levelId) {
     stopAllGameSounds();
     level3BossDefeated = true;
     level3Boss = null;
+    level3EndScreenFadeFrames = 0;
+    level3EndScreenFadeActive = false;
     debugTriggerLevel3EpilogueChoice(true);
     return;
   }
@@ -848,24 +850,16 @@ function debugWinLevel(levelId) {
   snapCameraToPlayer();
 }
 
-// DEBUG — lose: level 3 replicates pressing N (gets chased/caught); levels
-// 1/2 die and respawn at the last checkpoint, same as any hazard death.
-// Only reloads the level if you weren't already on it, so respawning uses
-// whatever checkpoint you'd actually reached rather than resetting to the
-// level's start.
+// DEBUG — lose: dies and respawns at the last checkpoint, same as any
+// hazard death. Only reloads the level if you weren't already on it, so
+// respawning uses whatever checkpoint you'd actually reached rather than
+// resetting to the level's start. Level 3 no longer has a "lose" concept —
+// the old chase/bad-end was replaced by the rematch mechanic — so this
+// isn't offered there anymore (see handleDebugKeyPress()/drawDebugOverlay()).
 function debugLoseLevel(levelId) {
   if (currentScreen !== levelId) goToScreen(levelId);
   gameState = STATE_PLAY;
   isRespawning = false;
-
-  if (levelId === LEVEL_THREE) {
-    stopAllGameSounds();
-    level3BossDefeated = true;
-    level3Boss = null;
-    debugTriggerLevel3EpilogueChoice(false);
-    return;
-  }
-
   respawnFromHazard();
 }
 
@@ -909,7 +903,7 @@ function handleDebugKeyPress(key, keyCode) {
     debugMenuLevel = null;
     return true;
   }
-  if (upperKey === "L") {
+  if (upperKey === "L" && debugMenuLevel !== LEVEL_THREE) {
     debugLoseLevel(debugMenuLevel);
     debugModeActive = false;
     debugMenuLevel = null;
@@ -950,8 +944,10 @@ function drawDebugOverlay() {
     const isLevel3 = debugMenuLevel === LEVEL_THREE;
     text(isLevel3 ? "[W] Win (befriend the dragon)" : "[W] Win (reach the portal)", width / 2, y);
     y += 24;
-    text(isLevel3 ? "[L] Lose (get caught by the dragon)" : "[L] Lose (die, respawn at last checkpoint)", width / 2, y);
-    y += 24;
+    if (!isLevel3) {
+      text("[L] Lose (die, respawn at last checkpoint)", width / 2, y);
+      y += 24;
+    }
     text("[Backspace] Back to level list", width / 2, y);
     y += 24;
   }
@@ -1225,6 +1221,13 @@ function computeAreaLayout(levelDef) {
 }
 
 function loadLevel(levelId) {
+  // Clear any lingering end-screen fade state so dragons/animations resume
+  if (typeof level3EndScreenFadeFrames !== 'undefined') {
+    level3EndScreenFadeFrames = 0;
+  }
+  if (typeof level3EndScreenFadeActive !== 'undefined') {
+    level3EndScreenFadeActive = false;
+  }
   const def = LEVELS[levelId];
   stopAllGameSounds();
 
@@ -1738,14 +1741,15 @@ function drawNoiseHUD() {
  
 let level3EndScreenFadeFrames = 0; // reset in checkPortalEntrance() when level 3's WIN state begins
 const LEVEL3_END_FADE_DURATION = 90; // ~1.5s at 60fps
+let level3EndScreenFadeActive = false;
 
 function drawEndScreen() {
   if (currentScreen === LEVEL_THREE) {
     if (!theEndImg) return;
     // If this is the first frame of the end fade, start the title theme
     const justStarting = level3EndScreenFadeFrames === 0;
-    level3EndScreenFadeFrames = min(level3EndScreenFadeFrames + 1, LEVEL3_END_FADE_DURATION);
     if (justStarting) {
+      level3EndScreenFadeActive = true;
       const fadeSec = LEVEL3_END_FADE_DURATION / 60; // frames -> seconds (@60fps)
       if (typeof titleMusic !== 'undefined' && titleMusic) {
         try {
@@ -1756,6 +1760,10 @@ function drawEndScreen() {
           // ignore if fade/loop not available
         }
       }
+    }
+    level3EndScreenFadeFrames = min(level3EndScreenFadeFrames + 1, LEVEL3_END_FADE_DURATION);
+    if (level3EndScreenFadeFrames >= LEVEL3_END_FADE_DURATION) {
+      level3EndScreenFadeActive = false;
     }
     const alpha = map(level3EndScreenFadeFrames, 0, LEVEL3_END_FADE_DURATION, 0, 255);
     push();
@@ -3187,6 +3195,23 @@ function respawnFromDragon() {
 function drawDragon() {
   
   if (!dragon) return;
+  // If the final "The End" fade is active, don't advance dragon animation
+  // or draw movement so the creature remains frozen on-screen.
+  if (level3EndScreenFadeActive && currentScreen === LEVEL_THREE) {
+    // Render a single idle frame and return
+    push();
+    imageMode(CENTER);
+    const row = dragon.facing === "left" ? DRAGON_SPRITE.rows.idleLeft : DRAGON_SPRITE.rows.idleRight;
+    const sx = 0;
+    const sy = row * DRAGON_SPRITE.frameHeight;
+    const dw = DRAGON_SPRITE.frameWidth * DRAGON_SPRITE.scale;
+    const dh = DRAGON_SPRITE.frameHeight * DRAGON_SPRITE.scale;
+    if (dragonSheet) {
+      image(dragonSheet, dragon.x, dragon.y, dw, dh, sx, sy, DRAGON_SPRITE.frameWidth, DRAGON_SPRITE.frameHeight);
+    }
+    pop();
+    return;
+  }
 
   push();
   imageMode(CENTER);
@@ -4123,6 +4148,31 @@ function drawPlayer() {
   pop();
 }
 
+// The peaceful epilogue outcome — offering a rune in the first encounter's
+// CHOICE ([N]), or concluding the rematch's final dialogue line ([Enter])
+// in the second encounter. Same result either way: the dragon mimics the
+// player and the portal unlocks.
+function chooseLevel3Peace() {
+  level3EpilogueState = LEVEL3_EPILOGUE_STATE.MIMIC;
+
+  // Compute initial moving state immediately so we don't show a single
+  // idle frame when the dragon should already be trailing the player.
+  if (level3EndDragon) {
+    const halfW = level3EndDragon.w / 2;
+    const gap = player.x - level3EndDragon.x; // signed
+    const edgeDist = Math.abs(gap) - halfW;
+    level3EndDragonIsMoving = edgeDist > LEVEL3_MIMIC_CONFIG.followRange;
+    level3EndDragon.facing = gap < 0 ? "left" : "right";
+    level3MimicTargetY = level3EndDragon.y;
+  } else {
+    level3EndDragonIsMoving = false;
+  }
+
+  level3EpilogueLineText = "This will work. Let us depart together.";
+  level3EpilogueLineTimer = 150;
+  portalUnlocked = true;
+}
+
 // ------------------------------------------------------------
 // keyPressed()
 // ------------------------------------------------------------
@@ -4170,50 +4220,33 @@ function keyPressed() {
 if (currentScreen === LEVEL_THREE && level3EpilogueState === LEVEL3_EPILOGUE_STATE.DIALOGUE && key === "Enter") {
   level3DialogueIndex++;
   if (level3DialogueIndex >= level3DialogueLines.length) {
-    level3EpilogueState = LEVEL3_EPILOGUE_STATE.CHOICE;
+    if (level3SecondEncounter) {
+      // No separate choice this time — the last dialogue line ("Yes, I'm
+      // done fighting.") already IS the answer, so this same [Enter] press
+      // concludes it directly instead of needing a second press once
+      // redundantly re-showing that same image in a CHOICE state.
+      chooseLevel3Peace();
+    } else {
+      level3EpilogueState = LEVEL3_EPILOGUE_STATE.CHOICE;
+    }
   }
   return;
 }
 
 if (currentScreen === LEVEL_THREE && level3EpilogueState === LEVEL3_EPILOGUE_STATE.CHOICE) {
-  const choosePeace = () => {
-    level3EpilogueState = LEVEL3_EPILOGUE_STATE.MIMIC;
-
-    // Compute initial moving state immediately so we don't show a single
-    // idle frame when the dragon should already be trailing the player.
-    if (level3EndDragon) {
-      const halfW = level3EndDragon.w / 2;
-      const gap = player.x - level3EndDragon.x; // signed
-      const edgeDist = Math.abs(gap) - halfW;
-      level3EndDragonIsMoving = edgeDist > LEVEL3_MIMIC_CONFIG.followRange;
-      level3EndDragon.facing = gap < 0 ? "left" : "right";
-      level3MimicTargetY = level3EndDragon.y;
-    } else {
-      level3EndDragonIsMoving = false;
-    }
-
-    level3EpilogueLineText = "This will work. Let us depart together.";
-    level3EpilogueLineTimer = 150;
-    portalUnlocked = true;
-  };
-
-  if (level3SecondEncounter) {
-    // Only one option this time — same peaceful outcome as the first
-    // encounter's [N], just bound to [Y] now (see drawLevel3DialogueUI()).
-    if (key === "y" || key === "Y") {
-      choosePeace();
-    }
-    return;
-  }
-
  if (key === "n" || key === "N") {
-  choosePeace();
+  chooseLevel3Peace();
   return;
 }
   if (key === "y" || key === "Y") {
     // "Keep fighting" — loop back into a full rematch instead of the old
-    // instant chase/bad-end.
+    // instant chase/bad-end. Clear the epilogue state immediately (not
+    // just once the transition finishes) — otherwise drawLevel3DialogueUI()
+    // saw level3SecondEncounter already true while still in the old CHOICE
+    // state and flashed the 2dialogue8 image for the frames before the
+    // white transition actually swapped areas.
     level3SecondEncounter = true;
+    level3EpilogueState = LEVEL3_EPILOGUE_STATE.NONE;
     startLevel3Rematch();
     return;
   }
