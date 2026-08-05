@@ -609,11 +609,9 @@ const LEVELS = {
         key: "fish",
         json: "fishArea3",
         bg: "fishareaBG3",
-        // Right edge of the bg should land on the left edge of the fish
-        // arena's right-side wall (local tile x=46 in data/3fisharea.json,
-        // where the "rock" column depth jumps from 24 to 35 tiles), not
-        // stretch across the whole area like the default bgSize did.
-        bgSize: [42 * TILE_SIZE, null],
+        // 3fishareabg.png is sized to match the fish area map itself, so
+        // no bgSize override — draw at the default full-area size, lined
+        // up top-left with the map like any other area background.
       },
       {
         key: "bird",
@@ -3831,6 +3829,15 @@ function handleInput() {
     }
     return;
   }
+
+  // Rock-throwing tutorial popup: the boss fight already pauses for this
+  // (see level3ShowRockTutorial in updateLevel3BossFight()), but the
+  // player could still fly around freely while it's up — freeze them too.
+  if (currentScreen === LEVEL_THREE && level3ShowRockTutorial) {
+    player.isMoving = false;
+    return;
+  }
+
   player.isMoving = false;
 
   // --- Horizontal Movement ---
@@ -4012,15 +4019,17 @@ function drawPlayer() {
 // keyPressed()
 // ------------------------------------------------------------
 function keyPressed() {
+  // Debug menu access should never be blocked by an in-game popup —
+  // check this before the rock-tutorial swallow below.
+  if (handleDebugKeyPress(key, keyCode)) {
+    return;
+  }
+
   if (level3ShowRockTutorial) {
     if (key === "Enter") {
       level3ShowRockTutorial = false;
     }
     return; // swallow this keypress so it doesn't also jump/throw
-  }
-
-  if (handleDebugKeyPress(key, keyCode)) {
-    return;
   }
 
   if (currentScreen === TITLE_SCREEN && key === "Enter") {

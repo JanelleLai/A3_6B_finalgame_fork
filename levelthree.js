@@ -374,7 +374,7 @@ function damageLevel3Boss(amount) {
   level3DamageSoundIndex++;
 
   if (level3Phase === LEVEL3_PHASE.SWIM && level3Boss.hp <= 800) {
-    startLevel3Transition("The dragon raises its talons and transforms the terrain around you, bending the world to its will. \"quote,\" it spits.", enterLevel3FlyPhase);
+    startLevel3Transition("The dragon raises its talons and transforms the terrain\naround you, bending the world to its will.\n\"quote,\" it spits.", enterLevel3FlyPhase);
     return;
   }
 
@@ -712,13 +712,13 @@ function drawLevel3RockTutorial() {
   fill(255);
   textSize(22);
   // Line 1
-text("Grab rocks and press E", width / 2, height / 2 - 20);
+text("Grab rocks and press [E]", width / 2, height / 2 - 20);
 // Line 2
 text("to throw at the dragon (auto-aimed).", width / 2, height / 2 + 10);
 
   fill(200);
   textSize(13);
-  text("Press [Enter] to continue", width / 2, height / 2 + 35);
+  text("Press [Enter] to continue", width / 2, height / 2 + 40);
   pop();
 }
 
