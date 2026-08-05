@@ -749,7 +749,7 @@ text("No need to aim, they're homing rocks!", width / 2, height / 2 + 15);
   // Fades in exactly as [Enter] actually becomes acceptable (see the
   // level3RockTutorialFrames >= 60 check in keyPressed()) instead of just
   // sitting there the whole time, inviting a press that'd be ignored.
-  const unlockFrame = 60;
+  const unlockFrame = 120;
   const fadeInDuration = 20;
   const textAlpha = constrain(map(level3RockTutorialFrames, unlockFrame, unlockFrame + fadeInDuration, 0, 255), 0, 255);
   fill(200, 200, 200, textAlpha);
