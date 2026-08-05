@@ -330,6 +330,7 @@ let dragonTriggerRuneKey = null; // getWorldTileKey() of the specific rune that 
 let dragonTriggerRunePos = null; // {x,y} world center of that rune — kept for the debug overlay below
 let chaseMusic;
 let epilogueMusic; // replaces humanBGsound during level 3's epilogue (IDLE/DIALOGUE/CHOICE/MIMIC) 
+let titleMusic; // Halcyon theme for the title screen
 let dragonGrowl;
 let dragonGrowl2;
 let dragonScreech;
@@ -426,6 +427,7 @@ let flagUpImg;
 let barrierImg;
 let level1MessageImg;
 let level2MessageImg;
+let theEndImg; // level 3's final win screen — fades in instead of showing instantly
 
 let fishareaBG;
 let fishareaOverlay;
@@ -448,6 +450,7 @@ let dialogueImgs = []; // dialogue1..3, indexed 0-2 to match level3DialogueIndex
 let dialogueWithOptionsImg;
 let dialogueWinImg;
 let dialogueLoseImg;
+let dialogueImgs2 = []; // rematch conversation art (2dialogue1..8.png), indexed 0-7
 
 let fishSheet; //fish sprite sheet
 let birdSheet; //bird sprite sheet
@@ -1024,6 +1027,16 @@ function preload() {
   dialogueWithOptionsImg = loadImage("assets/images/dialoguewithOptions.png");
   dialogueWinImg = loadImage("assets/images/dialogueWIN.png");
   dialogueLoseImg = loadImage("assets/images/dialogueLOSE.png");
+  dialogueImgs2 = [
+    loadImage("assets/images/2dialogue1.png"),
+    loadImage("assets/images/2dialogue2.png"),
+    loadImage("assets/images/2dialogue3.png"),
+    loadImage("assets/images/2dialogue4.png"),
+    loadImage("assets/images/2dialogue5.png"),
+    loadImage("assets/images/2dialogue6.png"),
+    loadImage("assets/images/2dialogue7.png"),
+    loadImage("assets/images/2dialogue8.png"),
+  ];
   endareaBG3 = loadImage("assets/images/3endarea.png");
 
   cavebg = loadImage("assets/images/cavebg.png"); //bird area background level 1
@@ -1047,6 +1060,7 @@ function preload() {
   flagUpImg = loadImage("assets/images/flagup.png");
   level1MessageImg = loadImage("assets/images/Level1Message.png");
   level2MessageImg = loadImage("assets/images/Level2Message.png");
+  theEndImg = loadImage("assets/images/TheEnd.png");
 
   startarea2Img = loadImage("assets/images/2startarea.png");
 
@@ -1079,6 +1093,11 @@ function preload() {
     chaseMusic.setVolume(0.25);
   }
   epilogueMusic = loadSound("assets/sounds/epilogue.mp3");
+  // Title theme for the main menu/title screen
+  titleMusic = loadSound("assets/sounds/HalcyonTheme.mp3");
+  if (titleMusic) {
+    titleMusic.setVolume(0.5);
+  }
   dragonGrowl = loadSound("assets/sounds/dragongrowl.mp3");
   dragonGrowl2 = loadSound("assets/sounds/dragongrowl2.mp3");
   dragonScreech = loadSound("assets/sounds/dragonScreech.mp3");
@@ -1259,6 +1278,7 @@ function loadLevel(levelId) {
   setupBatsForLevel(levelId);
 
   if (levelId === LEVEL_THREE && typeof initLevel3BossFight === "function") {
+  level3SecondEncounter = false; // fresh entry into level 3 — not a mid-game rematch
   initLevel3BossFight();
   }
 
@@ -1624,8 +1644,11 @@ drawLevel3EndDragon();
     drawLevel3Transition(); // drawn last so it covers the HUD/dialogue too
   }
   drawInstructions();
-  if (gameState === STATE_WIN && (currentScreen === LEVEL_ONE || currentScreen === LEVEL_TWO)) {
-    stopAllGameSounds();
+  if (
+    gameState === STATE_WIN &&
+    (currentScreen === LEVEL_ONE || currentScreen === LEVEL_TWO || currentScreen === LEVEL_THREE)
+  ) {
+    // stopAllGameSounds();
     drawEndScreen();
   }
   if (gameState === STATE_OVER && currentScreen === LEVEL_THREE) {   // ADDED
@@ -1713,7 +1736,38 @@ function drawNoiseHUD() {
   pop();
 }
  
+let level3EndScreenFadeFrames = 0; // reset in checkPortalEntrance() when level 3's WIN state begins
+const LEVEL3_END_FADE_DURATION = 90; // ~1.5s at 60fps
+
 function drawEndScreen() {
+  if (currentScreen === LEVEL_THREE) {
+    if (!theEndImg) return;
+    // If this is the first frame of the end fade, start the title theme
+    const justStarting = level3EndScreenFadeFrames === 0;
+    level3EndScreenFadeFrames = min(level3EndScreenFadeFrames + 1, LEVEL3_END_FADE_DURATION);
+    if (justStarting) {
+      const fadeSec = LEVEL3_END_FADE_DURATION / 60; // frames -> seconds (@60fps)
+      if (typeof titleMusic !== 'undefined' && titleMusic) {
+        try {
+          titleMusic.setVolume(0);
+          titleMusic.loop();
+          titleMusic.fade(0.5, fadeSec);
+        } catch (e) {
+          // ignore if fade/loop not available
+        }
+      }
+    }
+    const alpha = map(level3EndScreenFadeFrames, 0, LEVEL3_END_FADE_DURATION, 0, 255);
+    push();
+    imageMode(CENTER);
+    const overlayW = min(width * 0.75, 600);
+    const overlayH = (theEndImg.height / theEndImg.width) * overlayW;
+    tint(255, alpha);
+    image(theEndImg, width / 2, height / 2, overlayW, overlayH);
+    pop();
+    return;
+  }
+
   const msgImg = currentScreen === LEVEL_TWO ? level2MessageImg : level1MessageImg;
   if (!msgImg) return;
   push();
@@ -1994,6 +2048,7 @@ function stopAllGameSounds() {
     runesound,
     diesound,
     chaseMusic,
+    titleMusic,
     epilogueMusic,
     dragonGrowl,
     dragonGrowl2,
@@ -3256,6 +3311,7 @@ function checkPortalEntrance() {
         runesound.play();
       }
       gameState = STATE_WIN;
+      level3EndScreenFadeFrames = 0; // start TheEnd.png's fade-in fresh
       console.log("Portal entered with enough runes.");
       return;
     }
@@ -4085,7 +4141,17 @@ function keyPressed() {
   }
 
   if (currentScreen === TITLE_SCREEN && key === "Enter") {
-    goToScreen(LEVEL_ONE);
+    const FADE_SEC = 0.6;
+    if (typeof titleMusic !== 'undefined' && titleMusic && titleMusic.isPlaying && titleMusic.isPlaying()) {
+      titleMusic.fade(0, FADE_SEC);
+      // stop and switch screens after fade completes
+      setTimeout(() => {
+        if (titleMusic && titleMusic.isPlaying && titleMusic.isPlaying()) titleMusic.stop();
+        goToScreen(LEVEL_ONE);
+      }, Math.ceil(FADE_SEC * 1000) + 50);
+    } else {
+      goToScreen(LEVEL_ONE);
+    }
     return;
   } else if (gameState === STATE_WIN && currentScreen === LEVEL_ONE && key === "Enter") {
     goToScreen(LEVEL_TWO);
@@ -4110,35 +4176,45 @@ if (currentScreen === LEVEL_THREE && level3EpilogueState === LEVEL3_EPILOGUE_STA
 }
 
 if (currentScreen === LEVEL_THREE && level3EpilogueState === LEVEL3_EPILOGUE_STATE.CHOICE) {
- if (key === "n" || key === "N") {
-  level3EpilogueState = LEVEL3_EPILOGUE_STATE.MIMIC;
+  const choosePeace = () => {
+    level3EpilogueState = LEVEL3_EPILOGUE_STATE.MIMIC;
 
-  // Compute initial moving state immediately so we don't show a single
-  // idle frame when the dragon should already be trailing the player.
-  if (level3EndDragon) {
-    const halfW = level3EndDragon.w / 2;
-    const gap = player.x - level3EndDragon.x; // signed
-    const edgeDist = Math.abs(gap) - halfW;
-    level3EndDragonIsMoving = edgeDist > LEVEL3_MIMIC_CONFIG.followRange;
-    level3EndDragon.facing = gap < 0 ? "left" : "right";
-    level3MimicTargetY = level3EndDragon.y;
-  } else {
-    level3EndDragonIsMoving = false;
+    // Compute initial moving state immediately so we don't show a single
+    // idle frame when the dragon should already be trailing the player.
+    if (level3EndDragon) {
+      const halfW = level3EndDragon.w / 2;
+      const gap = player.x - level3EndDragon.x; // signed
+      const edgeDist = Math.abs(gap) - halfW;
+      level3EndDragonIsMoving = edgeDist > LEVEL3_MIMIC_CONFIG.followRange;
+      level3EndDragon.facing = gap < 0 ? "left" : "right";
+      level3MimicTargetY = level3EndDragon.y;
+    } else {
+      level3EndDragonIsMoving = false;
+    }
+
+    level3EpilogueLineText = "This will work. Let us depart together.";
+    level3EpilogueLineTimer = 150;
+    portalUnlocked = true;
+  };
+
+  if (level3SecondEncounter) {
+    // Only one option this time — same peaceful outcome as the first
+    // encounter's [N], just bound to [Y] now (see drawLevel3DialogueUI()).
+    if (key === "y" || key === "Y") {
+      choosePeace();
+    }
+    return;
   }
 
-  level3EpilogueLineText = "This will work. Let us depart together.";
-  level3EpilogueLineTimer = 150;
-  portalUnlocked = true;
+ if (key === "n" || key === "N") {
+  choosePeace();
   return;
 }
   if (key === "y" || key === "Y") {
-    level3ChaseWindupTimer = 0;
-    level3EpilogueState = LEVEL3_EPILOGUE_STATE.CHASING;
-    if (humanBGsound && humanBGsound.isPlaying()) humanBGsound.stop();
-    if (chaseMusic && !chaseMusic.isPlaying()) chaseMusic.loop();
-    if (dragonGrowl2) dragonGrowl2.play();
-    level3EpilogueLineText = "So this is what you have chosen.";
-    level3EpilogueLineTimer = 150;
+    // "Keep fighting" — loop back into a full rematch instead of the old
+    // instant chase/bad-end.
+    level3SecondEncounter = true;
+    startLevel3Rematch();
     return;
   }
   return;

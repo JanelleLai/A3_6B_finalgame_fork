@@ -72,17 +72,74 @@ Post-Showcase 2 planned improvements:
 | `assets/images/watersuface.png` | Hanna Park |
 | `assets/images/whirlpool.png` | Janelle Lai |
 | `assets/images/wind.png` | Janelle Lai |
+| `assets/images/2birdarea.png` | Hanna Park |
+| `assets/images/2dialogue1.png` | Janelle Lai |
+| `assets/images/2dialogue2.png` | Janelle Lai |
+| `assets/images/2dialogue3.png` | Janelle Lai |
+| `assets/images/2dialogue4.png` | Janelle Lai |
+| `assets/images/2dialogue5.png` | Janelle Lai |
+| `assets/images/2dialogue6.png` | Janelle Lai |
+| `assets/images/2dialogue7.png` | Janelle Lai |
+| `assets/images/2dialogue8.png` | Janelle Lai |
+| `assets/images/2fisharea.png` | Hanna Park |
+| `assets/images/2sand.png` | Hanna Park |
+| `assets/images/2seaweed.png` | Hanna Park |
+| `assets/images/2Spike.png` | Hanna Park |
+| `assets/images/2startarea.png` | Hanna Park |
+| `assets/images/2watersurface.png` | Hanna Park |
+| `assets/images/3birdareabg.png` | Hanna Park |
+| `assets/images/3endarea.png` | Hanna Park |
+| `assets/images/3fishareabg.png` | Hanna Park |
+| `assets/images/3spike1.png` | Hanna Park |
+| `assets/images/3spike2.png` | Hanna Park |
+| `assets/images/AngryDragonSprite.png` | Janelle Lai |
+| `assets/images/barrier.png` | Hanna Park |
+| `assets/images/batIdle.png` | Janelle Lai |
+| `assets/images/batsSheet.png` | Janelle Lai |
+| `assets/images/Bridge2.png` | Hanna Park |
+| `assets/images/controls.png` | Grace Liang |
+| `assets/images/dialogue1.png` | Janelle Lai |
+| `assets/images/dialogue2.png` | Janelle Lai |
+| `assets/images/dialogue3.png` | Janelle Lai |
+| `assets/images/dialogueLOSE.png` | Janelle Lai |
+| `assets/images/dialogueWIN.png` | Janelle Lai |
+| `assets/images/dialoguewithOptions.png` | Janelle Lai |
+| `assets/images/dragonSheet.png` | Janelle Lai |
+| `assets/images/dragonSleeping.png` | Janelle Lai |
+| `assets/images/flagdown.png` | Hanna Park |
+| `assets/images/flagup.png` | Hanna Park |
+| `assets/images/grass2.png` | Hanna Park |
+| `assets/images/ground2.png` | Hanna Park |
+| `assets/images/Level2Message.png` | Hanna Park |
+| `assets/images/Rock2.png` | Hanna Park |
+| `assets/images/stone.png` | Janelle Lai |
+| `assets/images/TheEnd.png` | Hanna Park |
 | `assets/sounds/flappingsound` [1]| free sound community, wingflap_fast-2— Pixabay.com  
-| `assets/sounds/diesound` [2]| Sound shelf studio, UI loading end fail — Pixabay.com  
-| `assets/sounds/walkingsound` [3]| Joentnt, Walk on grass 3 — Pixabay.com |
-| `assets/sounds/runesound` [4]| Liecio, Diamond found— Pixabay.com |
-| `assets/sounds/fishareasound` [5]| DRAGON STUDIO, Underwater ambience — Pixabay.com |
-| `assets/sounds/humanBGound` [6]| Nakarada, Adventure | Royalty Free Medieval Fantasy Music — Youtube.com  |
-| `assets/sounds/birdBGsound` [7]| BreakingCopyright — Royalty Free Music, Epic Battle Music (No Copyright) "Dragon Castle" by Makai-symphony — Youtube.com  |
+| `assets/sounds/die.mp3` [2]| Sound shelf studio, UI loading end fail — Pixabay.com  
+| `assets/sounds/walking.mp3` [3]| Joentnt, Walk on grass 3 — Pixabay.com |
+| `assets/sounds/rune.mp3` [4]| Liecio, Diamond found— Pixabay.com |
+| `assets/sounds/fisharea.mp3` [5]| DRAGON STUDIO, Underwater ambience — Pixabay.com |
+| `assets/sounds/HumanBG.mp3` [6]| Nakarada, Adventure | Royalty Free Medieval Fantasy Music — Youtube.com  |
+| `assets/sounds/chaseMusic.mp3` [7]| BreakingCopyright — Royalty Free Music, Epic Battle Music (No Copyright) "Dragon Castle" by Makai-symphony — Youtube.com  |
 | `assets/sounds/portalopening.mp3` [8] | spookymodem (Freesound). Falling Rock — Pixabay.com |
-| `assets/sounds/birdflap` [9] | DRAGON-STUDIO. Bird Wings — Pixabay.com |
+| `assets/sounds/birdflap.mp3` [9] | DRAGON-STUDIO. Bird Wings — Pixabay.com |
 | `assets/sounds/epilogue.mp3` [10] | Sonican. Enchanted Fantasy - 30 Sec Classical Music — Pixabay.com |
 | `assets/sounds/dragongrowl.mp3` [11] | Antimsounds (Freesound). Dragon growl — Pixabay.com |
+| `assets/sounds/dragongrowl2.mp3` [12] | DRAGON-STUDIO. Werewolf Growl — Pixabay.com |
+| `assets/sounds/dragonScreech.mp3` [13] | Bird Angry Screech, Scream, Call — Pixabay.com |
+| `assets/sounds/dragonHiss.mp3` [14] | DRAGON-STUDIO. Pterodactyl Call — Pixabay.com |
+| `assets/sounds/dragonHiss2.mp3` [15] | sforsman. growl 2 — Pixabay.com |
+| `assets/sounds/dragonHurt.mp3` [16] | DRAGON-STUDIO. Beast Growl — Pixabay.com |
+| `assets/sounds/portalchime.mp3` [17] | Liecio, Diamond found — Pixabay.com |
+| `assets/sounds/bats.mp3` [18] | Audio Video, Bats Flying🦇VFX Sound Effect🔊No Copyright Strike✔️100% Free to Download & Use for Content Creators👍 — Youtube.com |
+| `assets/sounds/fishbg.mp3` [19] | SouravDasIX0II, Deep Oesan-Down Deep
+— Pixabay.com |
+| `assets/sounds/birdBG.mp3` [20] | saavane, UK Drum And Bass
+— Pixabay.com |
+| `assets/sounds/HalcyonTheme.mp3` [21] | SouravDasIX0II, Deep Oesan-Down Deep
+— Pixabay.com |
+
+
 
 ## References
 
@@ -100,10 +157,30 @@ Post-Showcase 2 planned improvements:
 
 [7] BreakingCopyright — Royalty Free Music. 2018. Epic Battle Music (No Copyright) "Dragon Castle" by Makai-symphony. YouTube. Retrieved July 7, 2026 from https://www.youtube.com/watch?v=9gBTKiVqprE
 
-[8] spookymodem (Freesound).2022. Falling Rock. Pixabay. Retreived july 30, 2026 from https://pixabay.com/sound-effects/film-special-effects-falling-rock-105396/
+[8] spookymodem (Freesound).2022. Falling Rock. Pixabay. Retreived July 30, 2026 from https://pixabay.com/sound-effects/film-special-effects-falling-rock-105396/
 
 [9] DRAGON-STUDIO. Bird Wings. 2026. Pixabay. Retreived July 30, 2026 from https://pixabay.com/sound-effects/nature-bird-wings-463212/
 
 [10] Sonican. Enchanted Fantasy - 30 Sec Classical Music. 2026. Pixabay. Retreived August 1, 2026 from https://pixabay.com/sound-effects/musical-enchanted-fantasy-30-sec-classical-music-535322/
 
-[11] Antimsounds (Freesound). Dragon growl. 2022. Pixabay. Retreived 2august, 2026 from https://pixabay.com/sound-effects/film-special-effects-dragon-growl-37570/ 
+[11] Antimsounds (Freesound). Dragon growl. 2022. Pixabay. Retreived August 4, 2026 from https://pixabay.com/sound-effects/film-special-effects-dragon-growl-37570/ 
+
+[12] DRAGON-STUDIO. Werewolf Growl. 2026. Pixabay. Retreived August 4, 2026 from https://pixabay.com/sound-effects/horror-werewolf-growl-511303/
+
+[13] Bird Angry Screech, Scream, Call. 2026. Pixabay. Retreived August 4, 2026 from https://pixabay.com/sound-effects/film-special-effects-bird-angry-screech-scream-call-520671/ 
+
+[14] DRAGON-STUDIO. Pterodactyl Call. 2025. Pixabay. Retreived August 4, 2026 from https://pixabay.com/sound-effects/film-special-effects-pterodactyl-call-382716/
+
+[15] sforsman (Freesound). growl 2. 2022. Pixabay. Retreived August 4, 2026 from https://pixabay.com/sound-effects/horror-growl-2-84549/
+
+[16] DRAGON-STUDIO. Beast Growl. 2026. Pixabay. Retreived August 4, 2026 from https://pixabay.com/sound-effects/horror-beast-growl-494304/
+
+[17] Liecio. n.d. Diamond Found. Pixabay. Retrieved July 7, 2026 from https://pixabay.com/sound-effects/film-special-effects-diamond-found-190255/
+
+[18] Audio Video. Bats Flying🦇VFX Sound Effect🔊No Copyright Strike✔️100% Free to Download & Use for Content Creators👍. 2021. Youtube. Retrieved July 7, 2026 from https://pixabay.com/sound-effects/film-special-effects-diamond-found-190255/
+
+[19] SouravDasIX0II. Deep Oesan-Down Deep. 2026. Pixabay. Retrieved August 4, 2026 from https://pixabay.com/music/instrumental-deep-oesan-down-deep-577624/
+
+[20] saavane. UK Drum And Bass. 2024. Pixabay. Retrieved July 28, 2026 from https://pixabay.com/music/drum-n-bass-uk-drum-and-bass-243906/ 
+
+[21] melodyayresgriffiths. Victory - electronic video game soundtrack denouement credits. 2023. Pixabay. Retrieved August 4, 2026 from https://pixabay.com/music/video-games-victory-electronic-video-game-soundtrack-denouement-credits-153944/

@@ -10,6 +10,10 @@ function windowResized() {
 */
 
 function drawTitleScreen() {
+  // Start the title theme if available
+  if (typeof titleMusic !== 'undefined' && titleMusic && !titleMusic.isPlaying()) {
+    titleMusic.loop();
+  }
     
     frameTimer += deltaTime / 1000;
 

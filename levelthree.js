@@ -125,6 +125,7 @@ const LEVEL3_MIMIC_CONFIG = {
 let level3EndDragonIsMoving = false; // drives idle (bottom half) vs flying (top half) sprite rows
 let level3MimicTargetY = 0; // ratchets upward only, as the player climbs to solid ground higher than its last value — see MIMIC vertical follow
 let level3EndDragonChasing = false;  // hysteresis "intent to chase" flag, decoupled from animation
+let level3SecondEncounter = false; // true once the player has chosen to "keep fighting" and looped back for a rematch
 
 // Persistent (not re-declared per-frame) animation state for the
 // epilogue dragon — separate from the shared boss-fight dragonAnimFrame
@@ -374,7 +375,10 @@ function damageLevel3Boss(amount) {
   level3DamageSoundIndex++;
 
   if (level3Phase === LEVEL3_PHASE.SWIM && level3Boss.hp <= 800) {
-    startLevel3Transition("The dragon raises its talons and transforms the terrain\naround you into an aerial battlefield, bending the world to its will.\n\"Ever feel like a fish out of water?\" it jeers.", enterLevel3FlyPhase);
+    const swimToFlyText = level3SecondEncounter
+      ? "The dragon assembles its aerial battlefield again.\n\"Taking a trip down memory lane already?\""
+      : "The dragon raises its talons and transforms the terrain\naround you into an aerial battlefield.\n\"Ever feel like a fish out of water?\" it jeers.";
+    startLevel3Transition(swimToFlyText, enterLevel3FlyPhase);
     return;
   }
 
@@ -382,7 +386,10 @@ function damageLevel3Boss(amount) {
     stopAllGameSounds();
     level3BossDefeated = true;
     level3Boss = null;
-    startLevel3Transition("The dragon manipulates the terrain again, \nsweeping you to another environment of its creation. \"Enough of this.\"", moveToLevel3EndArea);
+    const flyToEndText = level3SecondEncounter
+      ? "The terrain crumbles around you as the dragon manipulates it again.\n\"Have we had enough?\""
+      : "The dragon bends the world to its will again, \nsweeping you to another environment of its creation. \n \"Enough of this.\"";
+    startLevel3Transition(flyToEndText, moveToLevel3EndArea);
     return;
   }
 
@@ -554,7 +561,13 @@ function moveToLevel3BirdArena() {
   const stoneTiles = findAreaLayerWorldTiles(bird, "stone");
   rockPedestals = stoneTiles.map((t) => ({ x: t.x, y: t.y, hasRock: true, respawnTimer: 0 }));
 
-   level3ShowRockTutorial = true; // freezes the fight until the player dismisses this
+   // Skip the tutorial on the rematch — the player's already seen it.
+   level3ShowRockTutorial = !level3SecondEncounter; // freezes the fight until the player dismisses this
+
+  // Natural SWIM->FLY transition (defeating the fish-phase boss) never
+  // started chaseMusic — only the debug "bird" jump did, so beating the
+  // fish boss for real left the fight silent.
+  if (chaseMusic && !chaseMusic.isPlaying()) chaseMusic.loop();
 
   snapCameraToPlayer();
 }
@@ -710,15 +723,15 @@ function drawLevel3RockTutorial() {
   textFont("monospace");
   textAlign(CENTER, CENTER);
   fill(255);
-  textSize(22);
+  textSize(21);
   // Line 1
-text("Grab rocks and press [E]", width / 2, height / 2 - 20);
+text("Grab rocks and press [E] to throw at the dragon.", width / 2, height / 2 - 20);
 // Line 2
-text("to throw at the dragon (auto-aimed).", width / 2, height / 2 + 10);
+text("No need to aim, they're homing rocks!", width / 2, height / 2 + 15);
 
   fill(200);
-  textSize(13);
-  text("Press [Enter] to continue", width / 2, height / 2 + 40);
+  textSize(18);
+  text("Press [Enter] to continue", width / 2, height / 2 + 50);
   pop();
 }
 
@@ -1189,16 +1202,65 @@ function initLevel3Epilogue() {
 
   level3EpilogueState = LEVEL3_EPILOGUE_STATE.IDLE;
   level3DialogueIndex = 0;
-  // Only 3 lines now — dialogue4.png/dialogue5.png were removed, and the
-  // CHOICE image (dialoguewithoptions.png) already bakes in its own
-  // "I need something from you first" prompt.
-  level3DialogueLines = [
-    { speaker: "Dragon", text: "You can't defeat me. I control this world." },
-    { speaker: "You", text: "You've done nothing but make my journey harder." },
-    { speaker: "Dragon", text: "But you've been getting better at navigating it." },
-  ];
+  if (level3SecondEncounter) {
+    // Rematch conversation — no dialogue art for these, drawn as plain
+    // text instead (see drawLevel3DialogueUI()).
+    level3DialogueLines = [
+      { speaker: "Dragon", text: "Here we are again." },
+      { speaker: "You", text: "I thought if I fought hard enough, you would disappear." },
+      { speaker: "Dragon", text: "And did I?" },
+      { speaker: "You", text: "No." },
+      { speaker: "Dragon", text: "Because I was never meant to be separate from this world, and neither are you." },
+      { speaker: "Dragon", text: "The answer was never to defeat me." },
+      { speaker: "Dragon", text: "Are you ready to move forward now?" },
+      { speaker: "You", text: "Yes, I'm done fighting." },
+    ];
+  } else {
+    // Only 3 lines now — dialogue4.png/dialogue5.png were removed, and the
+    // CHOICE image (dialoguewithoptions.png) already bakes in its own
+    // "I need something from you first" prompt.
+    level3DialogueLines = [
+      { speaker: "Dragon", text: "You can't defeat me. I control this world." },
+      { speaker: "You", text: "You've done nothing but make my journey harder." },
+      { speaker: "Dragon", text: "But you've been getting better at navigating it." },
+    ];
+  }
 
   portalUnlocked = false; // stays shut until the rune is offered
+}
+
+// "Keep fighting" (first CHOICE, [Y]) loops back into a full rematch
+// instead of the old instant chase/bad-end — resets the boss fight fresh
+// in the fish arena, same as a natural level start.
+function applyLevel3Rematch() {
+  if (epilogueMusic && epilogueMusic.isPlaying()) epilogueMusic.stop();
+  if (chaseMusic && chaseMusic.isPlaying()) chaseMusic.stop();
+
+  // Dropped in the middle of the battle this time (right where the boss
+  // itself spawns) instead of swimming in from the arena's edge.
+  const arena = findArea(levelAreas, "fish");
+  const bossSpawn = getLevel3BossSpawnPoint(arena);
+  if (bossSpawn) {
+    player.x = bossSpawn.x;
+    player.y = bossSpawn.y;
+  } else {
+    player.x = LEVELS[LEVEL_THREE].playerStart.x;
+    player.y = LEVELS[LEVEL_THREE].playerStart.y;
+  }
+  player.vx = 0;
+  player.vy = 0;
+  player.form = FORM_FISH;
+
+  initLevel3BossFight();
+  snapCameraToPlayer();
+}
+
+// "Keep fighting" ([Y] in the first CHOICE) loops back into a full rematch
+// instead of the old instant chase/bad-end — fades to white with a dragon
+// remark, and swaps areas invisibly mid-fade like the other stage
+// transitions.
+function startLevel3Rematch() {
+  startLevel3Transition("I told you... you can't beat me.", applyLevel3Rematch);
 }
 
 // Plays the portal-opening sound exactly once, the first time the
@@ -1464,10 +1526,25 @@ function drawLevel3DialogueUI() {
   textFont("monospace");
 
   if (level3EpilogueState === LEVEL3_EPILOGUE_STATE.DIALOGUE) {
-    // dialogue1-5.png already have their own "[ENTER]" prompt baked in.
-    drawLevel3DialogueImage(dialogueImgs[level3DialogueIndex]);
+    // 2dialogue1-8.png / dialogue1-3.png already have their own "[ENTER]"
+    // prompt baked in.
+    drawLevel3DialogueImage(
+      level3SecondEncounter ? dialogueImgs2[level3DialogueIndex] : dialogueImgs[level3DialogueIndex],
+    );
   } else if (level3EpilogueState === LEVEL3_EPILOGUE_STATE.CHOICE) {
-    drawLevel3DialogueImage(dialogueWithOptionsImg);
+    if (level3SecondEncounter) {
+      // Only one option this time, no art for it — small plain-text prompt.
+      const boxH = height * 0.15;
+      noStroke();
+      fill(0, 0, 0, 200);
+      rect(0, 0, width, boxH);
+      fill(255);
+      textSize(16);
+      textAlign(LEFT, TOP);
+      text("[Y] Yes, I'm done fighting.", 24, 20);
+    } else {
+      drawLevel3DialogueImage(dialogueWithOptionsImg);
+    }
   } else if (level3EpilogueLineTimer > 0) {
     // portalUnlocked distinguishes the Y-choice's remark from the N-choice's
     // — same signal already used below to gate the portal-opening cue.
