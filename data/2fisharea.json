@@ -25,7 +25,7 @@
       "collider": false
     },
     {
-      "name": "barrier3",
+      "name": "barrier2",
       "tiles": [
         { "id": "2", "x": 38, "y": 17 },
         { "id": "2", "x": 38, "y": 18 },

@@ -328,7 +328,8 @@ let dragonSpawnTiles = []; // raw "dragon spawn" layer tiles for the current lev
 let dragonSpawnPoint = null; // {x,y} centroid of dragonSpawnTiles — the sleeping position
 let dragonTriggerRuneKey = null; // getWorldTileKey() of the specific rune that wakes it
 let dragonTriggerRunePos = null; // {x,y} world center of that rune — kept for the debug overlay below
-let chaseMusic; 
+let chaseMusic;
+let epilogueMusic; // replaces humanBGsound during level 3's epilogue (IDLE/DIALOGUE/CHOICE/MIMIC) 
 let dragonGrowl;
 let dragonGrowl2;
 let dragonScreech;
@@ -424,6 +425,7 @@ let flagDownImg;
 let flagUpImg;
 let barrierImg;
 let level1MessageImg;
+let level2MessageImg;
 
 let fishareaBG;
 let fishareaOverlay;
@@ -439,6 +441,13 @@ let fishareaBG3;
 let birdareaBG3;
 let endareaBG3;
 let stoneImg; // level 3 bird-arena pedestal/thrown-rock sprite
+
+// Level 3 epilogue dialogue art — one image per line of level3DialogueLines,
+// plus the Y/N-choice prompt and the post-choice remark (win/lose).
+let dialogueImgs = []; // dialogue1..5, indexed 0-4 to match level3DialogueIndex
+let dialogueWithOptionsImg;
+let dialogueWinImg;
+let dialogueLoseImg;
 
 let fishSheet; //fish sprite sheet
 let birdSheet; //bird sprite sheet
@@ -1003,6 +1012,16 @@ function preload() {
   fishareaBG3 = loadImage("assets/images/3fishareabg.png");
   birdareaBG3 = loadImage("assets/images/3birdareabg.png");
   stoneImg = loadImage("assets/images/stone.png");
+  dialogueImgs = [
+    loadImage("assets/images/dialogue1.png"),
+    loadImage("assets/images/dialogue2.png"),
+    loadImage("assets/images/dialogue3.png"),
+    loadImage("assets/images/dialogue4.png"),
+    loadImage("assets/images/dialogue5.png"),
+  ];
+  dialogueWithOptionsImg = loadImage("assets/images/dialoguewithoptions.png");
+  dialogueWinImg = loadImage("assets/images/dialogueWIN.png");
+  dialogueLoseImg = loadImage("assets/images/dialogueLOSE.png");
   endareaBG3 = loadImage("assets/images/3endarea.png");
 
   cavebg = loadImage("assets/images/cavebg.png"); //bird area background level 1
@@ -1025,6 +1044,7 @@ function preload() {
   flagDownImg = loadImage("assets/images/flagdown.png");
   flagUpImg = loadImage("assets/images/flagup.png");
   level1MessageImg = loadImage("assets/images/Level1Message.png");
+  level2MessageImg = loadImage("assets/images/Level2Message.png");
 
   startarea2Img = loadImage("assets/images/2startarea.png");
 
@@ -1056,6 +1076,7 @@ function preload() {
   if (chaseMusic) {
     chaseMusic.setVolume(0.25);
   }
+  epilogueMusic = loadSound("assets/sounds/epilogue.mp3");
   dragonGrowl = loadSound("assets/sounds/dragongrowl.mp3");
   dragonGrowl2 = loadSound("assets/sounds/dragongrowl2.mp3");
   dragonScreech = loadSound("assets/sounds/dragonScreech.mp3");
@@ -1601,7 +1622,7 @@ drawLevel3EndDragon();
     drawLevel3Transition(); // drawn last so it covers the HUD/dialogue too
   }
   drawInstructions();
-  if (gameState === STATE_WIN && level1MessageImg) {
+  if (gameState === STATE_WIN && (currentScreen === LEVEL_ONE || currentScreen === LEVEL_TWO)) {
     stopAllGameSounds();
     drawEndScreen();
   }
@@ -1612,7 +1633,7 @@ drawLevel3EndDragon();
 
 
 
-let DEBUG_SHOW_DRAGON_HITBOX = true; // flip to false, or toggle at runtime (see keyPressed note)
+let DEBUG_SHOW_DRAGON_HITBOX = false; // flip to true, or toggle at runtime (see keyPressed note)
 
 function drawDragonDebugHitbox() {
   if (!dragon || !DEBUG_SHOW_DRAGON_HITBOX) return;
@@ -1691,12 +1712,13 @@ function drawNoiseHUD() {
 }
  
 function drawEndScreen() {
+  const msgImg = currentScreen === LEVEL_TWO ? level2MessageImg : level1MessageImg;
+  if (!msgImg) return;
   push();
   imageMode(CENTER);
   const overlayW = min(width * 0.75, 600);
-  const overlayH =
-    (level1MessageImg.height / level1MessageImg.width) * overlayW;
-  image(level1MessageImg, width / 2, height / 2 + 20, overlayW, overlayH);
+  const overlayH = (msgImg.height / msgImg.width) * overlayW;
+  image(msgImg, width / 2, height / 2 + 20, overlayW, overlayH);
   pop();
 }
 
@@ -1869,18 +1891,22 @@ function updateAmbientLoop(sound, shouldPlay, targetVolume) {
 }
 
 function updateHumanBGSound() {
-  if (!humanBGsound) return;
-
-  // Level 3's epilogue keeps the player in human form throughout — the bad
-  // end (chasing/dead) should stay on chaseMusic, not have this fight back
-  // in every frame right after the N-choice explicitly stops it.
-  const inLevel3EpilogueOverride =
-    currentScreen === LEVEL_THREE &&
+  // Level 3's epilogue keeps the player in human form throughout — it gets
+  // its own dedicated music instead of the generic human ambience. The bad
+  // end (chasing/dead) stays on chaseMusic instead of either one, so it
+  // doesn't fight back in every frame right after the N-choice stops it.
+  const inLevel3Epilogue =
+    currentScreen === LEVEL_THREE && level3EpilogueState !== LEVEL3_EPILOGUE_STATE.NONE;
+  const inLevel3EpilogueBadEnd =
+    inLevel3Epilogue &&
     (level3EpilogueState === LEVEL3_EPILOGUE_STATE.CHASING ||
       level3EpilogueState === LEVEL3_EPILOGUE_STATE.DEAD);
 
-  const shouldPlay = player.form === FORM_HUMAN && !inLevel3EpilogueOverride;
-  updateAmbientLoop(humanBGsound, shouldPlay, 1);
+  updateAmbientLoop(epilogueMusic, inLevel3Epilogue && !inLevel3EpilogueBadEnd, 1);
+
+  if (!humanBGsound) return;
+  const shouldPlayHuman = player.form === FORM_HUMAN && !inLevel3Epilogue;
+  updateAmbientLoop(humanBGsound, shouldPlayHuman, 1);
 }
 
 function updateBirdBGSound() {
@@ -1966,6 +1992,7 @@ function stopAllGameSounds() {
     runesound,
     diesound,
     chaseMusic,
+    epilogueMusic,
     dragonGrowl,
     dragonGrowl2,
     dragonScreech,
@@ -2351,14 +2378,24 @@ function groupCheckpointTiles(tileRects) {
 // Run AFTER handleInput()/applyBounce() so movement this frame
 // has already been applied, then corrected.
 // ------------------------------------------------------------
+// Multiple passes: resolving against one tile can push the player straight
+// into a neighboring tile at a corner/staircase junction (very common in
+// level 1's terrain) since each tile is only checked once per pass with no
+// knowledge of the others — a single pass could leave the player still
+// overlapping, or (combined with a big single-frame move, e.g. bird flight
+// speed) resolve toward the wrong edge entirely and land them inside a
+// solid tile. Iterating lets it converge to a clean, non-overlapping spot.
+const SOLID_COLLISION_PASSES = 4;
+
 function resolveSolidCollisions() {
-  for (const t of solidTiles) {
-    const requiredKeys = GATE_LAYERS[t.layerName];
-    if (requiredKeys !== undefined && keyCollected >= requiredKeys) {
-      print("keycollected >= required keys");
-      continue; // ADDED — this gate is open, no collision
+  for (let pass = 0; pass < SOLID_COLLISION_PASSES; pass++) {
+    for (const t of solidTiles) {
+      const requiredKeys = GATE_LAYERS[t.layerName];
+      if (requiredKeys !== undefined && keyCollected >= requiredKeys) {
+        continue; // this gate is open, no collision
+      }
+      resolveCircleRect(player, t);
     }
-    resolveCircleRect(player, t);
   }
 }
 
@@ -3060,7 +3097,13 @@ function respawnFromDragon() {
 
       if (dragonTriggerRuneKey) {
         keyMap.set(dragonTriggerRuneKey, false);
-        keyCollected = 2;
+        // Un-collecting exactly one rune (the trigger rune) should lose
+        // exactly one rune's worth of credit — not hard-reset to a fixed
+        // count, which overwrote whatever the player's real total was
+        // (e.g. respawning with 2 runes credited despite only really
+        // having 1, and later falling short of requiredPortalKeys after
+        // re-collecting it, so the portal never opened).
+        keyCollected = Math.max(0, keyCollected - 1);
         portalUnlocked = portalIsUnlocked();
       }
 
@@ -3699,16 +3742,18 @@ function drawTiles(area) {
         for (let i = 0; i < checkpoints.length; i++) {
           const cp = checkpoints[i];
           if (abs(x - cp.x) < 1 && abs(y - cp.y) < 1) {
-            const flagW = TILE_SIZE * 1.2;
-            const flagH = TILE_SIZE * 2.2;
+            // flagdown.png/flagup.png are both square (50x50) — the old
+            // 1.2:2.2 box forced a ~2x vertical stretch onto them. Draw at
+            // a single square size instead so the art isn't distorted.
+            const flagSize = TILE_SIZE * 1.6;
             const flagSprite = i <= activeCheckpointIndex ? flagUpImg : flagDownImg;
             imageMode(CORNER);
             image(
               flagSprite,
-              x + TILE_SIZE / 2 - flagW / 2,
-              y - flagH,
-              flagW,
-              flagH,
+              x + TILE_SIZE / 2 - flagSize / 2,
+              y - flagSize,
+              flagSize,
+              flagSize,
             );
             break;
           }

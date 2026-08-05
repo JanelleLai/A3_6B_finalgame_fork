@@ -25,7 +25,7 @@ const BOSS3_STATE = {
 // ADDED — reuse chargeSpeed's neighbor; tune independently if it feels too fast/slow
 const LEVEL3_BOSS_CONFIG = {
   maxHealth: 1000,
-  wallDamage: 30,
+  wallDamage: 40,
   chargeSpeed: 6,
   chaseSpeed: 6.5,   // FLY-phase pursuit speed — increased from 4
   telegraphFrames: 90,
@@ -266,7 +266,7 @@ function activateLevel3Barrier() {
   if (level3BarrierActive || !level3Barrier) return;
   solidTiles.push(level3Barrier);
   level3BarrierActive = true;
-  if (chaseMusic && !chaseMusic.isPlaying()) chaseMusic.loop();
+  if (epilogueMusic && !epilogueMusic.isPlaying()) epilogueMusic.loop();
 }
 
 function deactivateLevel3Barrier() {
@@ -393,8 +393,8 @@ function damageLevel3Boss(amount) {
 // quoted line from the dragon, performs the actual area swap while
 // fully white (hidden), then fades back out revealing the new area.
 // ------------------------------------------------------------
-const LEVEL3_TRANSITION_FADE_FRAMES = 45; // ~0.75s each way at 60fps
-const LEVEL3_TRANSITION_HOLD_FRAMES = 150; // ~2.5s held at full white
+const LEVEL3_TRANSITION_FADE_FRAMES = 45;  // .75s at 60fps
+const LEVEL3_TRANSITION_HOLD_FRAMES = 300; // ~2.5s held at full white
 let level3TransitionActive = false;
 let level3TransitionTimer = 0;
 let level3TransitionText = "";
@@ -792,7 +792,7 @@ function playerTakeDragonHit() {
 }
 
 function restartLevel3Stage() {
-  if (chaseMusic && chaseMusic.isPlaying()) chaseMusic.stop(); // don't let it linger through a reset
+  if (epilogueMusic && epilogueMusic.isPlaying()) epilogueMusic.stop(); // don't let it linger through a reset
 
   if (level3Phase === LEVEL3_PHASE.FLY) {
     // Dying in the bird phase should retry just that phase — respawn at
@@ -934,11 +934,24 @@ function drawLevel3BossFightWorld() {
     level3Boss.state === BOSS3_STATE.AIMING || level3Boss.state === BOSS3_STATE.CHARGING;
   const bossSheet = isAboutToCharge && angryDragonSheet ? angryDragonSheet : dragonSheet;
 
-  if (bossSheet && !bossFlashedOut) {
+  let shakeX = 0;
+  let shakeY = 0;
+  if (level3Boss.state === BOSS3_STATE.AIMING) {
+    // Ramp intensity up as the telegraph timer counts down, so it feels
+    // like it's winding up rather than just jittering the whole time.
+    const progress = 1 - (level3Boss.timer / LEVEL3_BOSS_CONFIG.telegraphFrames);
+    const AIM_SHAKE_MAX = 7; // world units — boss sprite is ~330 wide, needs a big number to read at camZoom ~0.65
+    const shakeAmount = AIM_SHAKE_MAX * progress;
+    shakeX = random(-shakeAmount, shakeAmount);
+    shakeY = random(-shakeAmount, shakeAmount);
+  }
+
+
+    if (bossSheet && !bossFlashedOut) {
     image(
       bossSheet,
-      level3Boss.x,
-      level3Boss.y,
+      level3Boss.x + shakeX,
+      level3Boss.y + shakeY,
       dw,
       dh,
       sx,
@@ -1023,7 +1036,7 @@ function drawLevel3HUD() {
     textAlign(CENTER, CENTER);
     textFont("monospace");
     textSize(16);
-    text("Homing rock ready — [E] to throw", width / 2, height / 2);
+    text("Homing rock ready — [E]/[Enter] to throw", width / 2, height / 2);
     pop();
   }
 
@@ -1268,7 +1281,7 @@ function debugTriggerLevel3EpilogueChoice(win) {
     level3ChaseWindupTimer = 0;
     level3EpilogueState = LEVEL3_EPILOGUE_STATE.CHASING;
     if (humanBGsound && humanBGsound.isPlaying()) humanBGsound.stop();
-    if (chaseMusic && !chaseMusic.isPlaying()) chaseMusic.loop();
+    if (epilogueMusic && !epilogueMusic.isPlaying()) epilogueMusic.loop();
     if (dragonGrowl2) dragonGrowl2.play();
     level3EpilogueLineText = "So this is what you have chosen.";
     level3EpilogueLineTimer = 150;
@@ -1428,6 +1441,17 @@ function drawLevel3EndDragon() {
   pop();
 }
 
+// Draws a dialogue art image centered horizontally, near the top of the
+// screen (above the player/dragon sprites, which sit near the bottom).
+function drawLevel3DialogueImage(img) {
+  if (!img) return;
+  const targetW = width * 0.85;
+  const scale = targetW / img.width;
+  const targetH = img.height * scale;
+  imageMode(CENTER);
+  image(img, width / 2, targetH / 2 + 10, targetW, targetH);
+}
+
 function drawLevel3DialogueUI() {
   const showing =
     level3EpilogueState === LEVEL3_EPILOGUE_STATE.DIALOGUE ||
@@ -1435,46 +1459,18 @@ function drawLevel3DialogueUI() {
     level3EpilogueLineTimer > 0;
   if (!showing) return;
 
-  // Anchored to the TOP of the screen instead of the bottom, since the
-  // player/dragon sprites are down at the bottom and the box used to
-  // cover them.
-  const boxH = height * 0.32;
   push();
-  noStroke();
-  fill(0, 0, 0, 200);
-  rect(0, 0, width, boxH);
-
   textFont("monospace");
-  textAlign(LEFT, TOP);
 
   if (level3EpilogueState === LEVEL3_EPILOGUE_STATE.DIALOGUE) {
-    const line = level3DialogueLines[level3DialogueIndex];
-    fill(230, 200, 80);
-    textSize(14);
-    text(line.speaker, 24, 16);
-    fill(255);
-    textSize(16);
-    text(line.text, 24, 40, width - 48);
-    fill(200);
-    textSize(11);
-    textAlign(RIGHT, BOTTOM);
-    text("[Enter] Continue", width - 20, boxH - 12);
+    // dialogue1-5.png already have their own "[ENTER]" prompt baked in.
+    drawLevel3DialogueImage(dialogueImgs[level3DialogueIndex]);
   } else if (level3EpilogueState === LEVEL3_EPILOGUE_STATE.CHOICE) {
-    fill(230, 200, 80);
-    textSize(14);
-    text("Dragon", 24, 16);
-    fill(255);
-    textSize(16);
-    text("I need something from you first.", 24, 40, width - 48);
-    textSize(14);
-    text('[Y] Offer a rune        [N] Attack the dragon', 24, 80);
+    drawLevel3DialogueImage(dialogueWithOptionsImg);
   } else if (level3EpilogueLineTimer > 0) {
-    fill(230, 200, 80);
-    textSize(14);
-    text("Dragon", 24, 16);
-    fill(255);
-    textSize(16);
-    text(level3EpilogueLineText, 24, 40);
+    // portalUnlocked distinguishes the Y-choice's remark from the N-choice's
+    // — same signal already used below to gate the portal-opening cue.
+    drawLevel3DialogueImage(portalUnlocked ? dialogueWinImg : dialogueLoseImg);
     level3EpilogueLineTimer--;
     // Portal is already mechanically unlocked (set the moment Y was chosen)
     // — this is just the sound/message cue, timed to land right after the
