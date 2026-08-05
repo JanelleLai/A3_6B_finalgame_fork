@@ -374,7 +374,7 @@ function damageLevel3Boss(amount) {
   level3DamageSoundIndex++;
 
   if (level3Phase === LEVEL3_PHASE.SWIM && level3Boss.hp <= 800) {
-    startLevel3Transition("The dragon raises its talons and transforms the terrain\naround you, bending the world to its will.\n\"quote,\" it spits.", enterLevel3FlyPhase);
+    startLevel3Transition("The dragon raises its talons and transforms the terrain\naround you into an aerial battlefield, bending the world to its will.\n\"Ever feel like a fish out of water?\" it jeers.", enterLevel3FlyPhase);
     return;
   }
 
@@ -382,7 +382,7 @@ function damageLevel3Boss(amount) {
     stopAllGameSounds();
     level3BossDefeated = true;
     level3Boss = null;
-    startLevel3Transition("The dragon transforms the world again, \nsweeping you to another environment, \"Adapt or die or smt.\"", moveToLevel3EndArea);
+    startLevel3Transition("The dragon manipulates the terrain again, \nsweeping you to another environment of its creation. \"Enough of this.\"", moveToLevel3EndArea);
     return;
   }
 
