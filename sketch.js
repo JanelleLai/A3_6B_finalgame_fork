@@ -2018,8 +2018,8 @@ function updateFishAreaSound() {
   if (!fishareasound || !fishBGsound) return; // use whatever variable name you declared
 
   const shouldPlay = playerInWater();
-  updateAmbientLoop(fishareasound, shouldPlay, 0.15);
-  updateAmbientLoop(fishBGsound, shouldPlay, 0.15);
+  updateAmbientLoop(fishareasound, shouldPlay, 0.5);
+  updateAmbientLoop(fishBGsound, shouldPlay, 0.18);
 }
 
 // ------------------------------------------------------------
