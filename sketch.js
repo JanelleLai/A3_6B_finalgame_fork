@@ -1103,7 +1103,7 @@ function preload() {
   // Title theme for the main menu/title screen
   titleMusic = loadSound("assets/sounds/HalcyonTheme.mp3");
   if (titleMusic) {
-    titleMusic.setVolume(0.5);
+    titleMusic.setVolume(0.4);
   }
   dragonGrowl = loadSound("assets/sounds/dragongrowl.mp3");
   dragonGrowl2 = loadSound("assets/sounds/dragongrowl2.mp3");
