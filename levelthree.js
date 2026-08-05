@@ -1036,7 +1036,7 @@ function drawLevel3HUD() {
     textAlign(CENTER, CENTER);
     textFont("monospace");
     textSize(16);
-    text("Homing rock ready — [E]/[Enter] to throw", width / 2, height / 2);
+    text("Homing rock ready — [E] to throw", width / 2, height / 2);
     pop();
   }
 
@@ -1189,12 +1189,13 @@ function initLevel3Epilogue() {
 
   level3EpilogueState = LEVEL3_EPILOGUE_STATE.IDLE;
   level3DialogueIndex = 0;
+  // Only 3 lines now — dialogue4.png/dialogue5.png were removed, and the
+  // CHOICE image (dialoguewithoptions.png) already bakes in its own
+  // "I need something from you first" prompt.
   level3DialogueLines = [
     { speaker: "Dragon", text: "You can't defeat me. I control this world." },
     { speaker: "You", text: "You've done nothing but make my journey harder." },
     { speaker: "Dragon", text: "But you've been getting better at navigating it." },
-    { speaker: "You", text: "Whatever — just tell me how to open this portal!" },
-    { speaker: "Dragon", text: "I need something from you first." },
   ];
 
   portalUnlocked = false; // stays shut until the rune is offered

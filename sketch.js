@@ -368,8 +368,8 @@ const GATE_LAYERS = {
 // WHIRLPOOL SPRITE CONFIGURATION
 // ------------------------------------------------------------
 const WHIRLPOOL_SPRITE = {
-  numFrames: 4, // 4 frames horizontal
-  animSpeed: 15, // Lower number = faster rotation speed
+  numFrames: 6, // 4 frames horizontal
+  animSpeed: 7, // Lower number = faster rotation speed
   scale: 1.0, // Scale adjustment if needed to fit TILE_SIZE
 };
 
@@ -444,7 +444,7 @@ let stoneImg; // level 3 bird-arena pedestal/thrown-rock sprite
 
 // Level 3 epilogue dialogue art — one image per line of level3DialogueLines,
 // plus the Y/N-choice prompt and the post-choice remark (win/lose).
-let dialogueImgs = []; // dialogue1..5, indexed 0-4 to match level3DialogueIndex
+let dialogueImgs = []; // dialogue1..3, indexed 0-2 to match level3DialogueIndex
 let dialogueWithOptionsImg;
 let dialogueWinImg;
 let dialogueLoseImg;
@@ -610,7 +610,11 @@ const LEVELS = {
     ],
     playerStart: { x: 4 * TILE_SIZE, y: 10 * TILE_SIZE },
     buildWindZones: buildLevel2WindZones,
-    requiredKeys: 4,
+    // Matches the map's actual rune count (0 in startArea2 + 1 in
+    // birdArea2 + 2 in fisharea2 = 3 "key" tiles total). This was set to
+    // 4 — one more than could ever exist — so keyCollected could never
+    // reach it and the portal could never open, no matter what.
+    requiredKeys: 3,
   },
   [LEVEL_THREE]: {
     areas: [
@@ -1016,10 +1020,8 @@ function preload() {
     loadImage("assets/images/dialogue1.png"),
     loadImage("assets/images/dialogue2.png"),
     loadImage("assets/images/dialogue3.png"),
-    loadImage("assets/images/dialogue4.png"),
-    loadImage("assets/images/dialogue5.png"),
   ];
-  dialogueWithOptionsImg = loadImage("assets/images/dialoguewithoptions.png");
+  dialogueWithOptionsImg = loadImage("assets/images/dialoguewithOptions.png");
   dialogueWinImg = loadImage("assets/images/dialogueWIN.png");
   dialogueLoseImg = loadImage("assets/images/dialogueLOSE.png");
   endareaBG3 = loadImage("assets/images/3endarea.png");
@@ -2776,7 +2778,12 @@ function resetBats() {
 
   if (secondRuneKey) {
     keyMap.set(secondRuneKey, false);
-    keyCollected = 1; // reset to 1 so the player has to re-collect the 2nd rune
+    // Un-collecting exactly one rune should lose exactly one rune's worth
+    // of credit — hardcoding to 1 overwrote whatever the player's real
+    // total was (same bug as respawnFromDragon() had), so re-collecting
+    // the last rune later could still fall short of requiredPortalKeys
+    // and never open the portal.
+    keyCollected = Math.max(0, keyCollected - 1);
     portalUnlocked = portalIsUnlocked();
   }
   secondRuneKey = null;
@@ -4103,7 +4110,7 @@ if (currentScreen === LEVEL_THREE && level3EpilogueState === LEVEL3_EPILOGUE_STA
 }
 
 if (currentScreen === LEVEL_THREE && level3EpilogueState === LEVEL3_EPILOGUE_STATE.CHOICE) {
- if (key === "y" || key === "Y") {
+ if (key === "n" || key === "N") {
   level3EpilogueState = LEVEL3_EPILOGUE_STATE.MIMIC;
 
   // Compute initial moving state immediately so we don't show a single
@@ -4124,7 +4131,7 @@ if (currentScreen === LEVEL_THREE && level3EpilogueState === LEVEL3_EPILOGUE_STA
   portalUnlocked = true;
   return;
 }
-  if (key === "n" || key === "N") {
+  if (key === "y" || key === "Y") {
     level3ChaseWindupTimer = 0;
     level3EpilogueState = LEVEL3_EPILOGUE_STATE.CHASING;
     if (humanBGsound && humanBGsound.isPlaying()) humanBGsound.stop();
