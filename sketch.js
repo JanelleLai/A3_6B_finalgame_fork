@@ -1084,11 +1084,11 @@ function preload() {
   birdflapsound = loadSound("assets/sounds/birdflap.mp3"); //level2
   fishareasound = loadSound("assets/sounds/fisharea.mp3");
   if (fishareasound) {
-    fishareasound.setVolume(0.15);
+    fishareasound.setVolume(0.55); // updateFishAreaSound() fades to this same target every frame
   }
   fishBGsound = loadSound("assets/sounds/fishbg.mp3");
   if (fishBGsound) {
-    fishBGsound.setVolume(0.15);
+    fishBGsound.setVolume(0.22); // updateFishAreaSound() fades to this same target every frame
   }
   humanBGsound = loadSound("assets/sounds/HumanBG.mp3");
   birdBGsound = loadSound("assets/sounds/birdBG.mp3");
@@ -2018,8 +2018,8 @@ function updateFishAreaSound() {
   if (!fishareasound || !fishBGsound) return; // use whatever variable name you declared
 
   const shouldPlay = playerInWater();
-  updateAmbientLoop(fishareasound, shouldPlay, 0.5);
-  updateAmbientLoop(fishBGsound, shouldPlay, 0.18);
+  updateAmbientLoop(fishareasound, shouldPlay, 0.55);
+  updateAmbientLoop(fishBGsound, shouldPlay, 0.22);
 }
 
 // ------------------------------------------------------------
@@ -4187,7 +4187,15 @@ function chooseLevel3Peace() {
 // ------------------------------------------------------------
 // keyPressed()
 // ------------------------------------------------------------
-function keyPressed() {
+function keyPressed(event) {
+  // Space/arrow keys are also browser scroll shortcuts — p5 calls
+  // preventDefault() on our behalf whenever this returns false, but a page
+  // scroll from spacebar while flying could shift/scroll the canvas out of
+  // view, making a perfectly-working flap look like it did nothing.
+  if (event && (keyCode === 32 || keyCode === UP_ARROW || keyCode === DOWN_ARROW || keyCode === LEFT_ARROW || keyCode === RIGHT_ARROW)) {
+    event.preventDefault();
+  }
+
   // Debug menu access should never be blocked by an in-game popup —
   // check this before the rock-tutorial swallow below.
   if (handleDebugKeyPress(key, keyCode)) {
@@ -4195,7 +4203,10 @@ function keyPressed() {
   }
 
   if (level3ShowRockTutorial) {
-    if (key === "Enter") {
+    // Ignored for the first second it's actually visible — otherwise an
+    // [Enter] mashed during the white-flash transition (before the popup
+    // is even visible) could dismiss it instantly.
+    if (key === "Enter" && level3RockTutorialFrames >= 60) {
       level3ShowRockTutorial = false;
     }
     return; // swallow this keypress so it doesn't also jump/throw

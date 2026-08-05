@@ -77,6 +77,7 @@ let level3BossAnimTimer = 0;
 let level3ChargeSoundIndex = 0; // cycles dragonScreech/dragonGrowl2 each charge
 
 let level3ShowRockTutorial = false; // true right when entering the bird arena, until dismissed
+let level3RockTutorialFrames = 0; // counts up while shown — [Enter] is ignored for the first second so a press held over from the white-flash transition can't instantly dismiss it
 
 // ------------------------------------------------------------
 // EPILOGUE — plays out in the "end" area once the boss is
@@ -404,7 +405,7 @@ function damageLevel3Boss(amount) {
 // fully white (hidden), then fades back out revealing the new area.
 // ------------------------------------------------------------
 const LEVEL3_TRANSITION_FADE_FRAMES = 45;  // .75s at 60fps
-const LEVEL3_TRANSITION_HOLD_FRAMES = 300; // ~2.5s held at full white
+const LEVEL3_TRANSITION_HOLD_FRAMES = 250; // seconds held at full white
 let level3TransitionActive = false;
 let level3TransitionTimer = 0;
 let level3TransitionText = "";
@@ -566,6 +567,7 @@ function moveToLevel3BirdArena() {
 
    // Skip the tutorial on the rematch — the player's already seen it.
    level3ShowRockTutorial = !level3SecondEncounter; // freezes the fight until the player dismisses this
+   level3RockTutorialFrames = 0;
 
   // Natural SWIM->FLY transition (defeating the fish-phase boss) never
   // started chaseMusic — only the debug "bird" jump did, so beating the
@@ -724,6 +726,12 @@ function updateLevel3BossFight() {
 function drawLevel3RockTutorial() {
   if (!level3ShowRockTutorial) return;
 
+  // Only counts once the white-flash transition has actually cleared —
+  // otherwise a stray [Enter] pressed during the still-white screen (the
+  // popup already exists in-state then, just hidden under the fade)
+  // could reach 1 second and dismiss it before the player ever saw it.
+  if (!level3TransitionActive) level3RockTutorialFrames++;
+
   push();
   noStroke();
   fill(0, 0, 0, 170);
@@ -738,7 +746,13 @@ text("Grab rocks and press [E] to throw at the dragon.", width / 2, height / 2 -
 // Line 2
 text("No need to aim, they're homing rocks!", width / 2, height / 2 + 15);
 
-  fill(200);
+  // Fades in exactly as [Enter] actually becomes acceptable (see the
+  // level3RockTutorialFrames >= 60 check in keyPressed()) instead of just
+  // sitting there the whole time, inviting a press that'd be ignored.
+  const unlockFrame = 60;
+  const fadeInDuration = 20;
+  const textAlpha = constrain(map(level3RockTutorialFrames, unlockFrame, unlockFrame + fadeInDuration, 0, 255), 0, 255);
+  fill(200, 200, 200, textAlpha);
   textSize(18);
   text("Press [Enter] to continue", width / 2, height / 2 + 50);
   pop();
