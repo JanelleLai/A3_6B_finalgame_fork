@@ -2034,7 +2034,7 @@ function updateFlappingSound() {
 
   const inBirdArea =
     player.x >= bird.bounds.x && player.x < bird.bounds.x + bird.bounds.w;
-  const isFlapping = keyIsDown(87) || keyIsDown(UP_ARROW);
+  const isFlapping = keyIsDown(87) || keyIsDown(UP_ARROW) || keyIsDown(32);
   const shouldPlay =
     player.form === FORM_BIRD && inBirdArea && (player.isMoving || isFlapping);
 
@@ -2105,7 +2105,7 @@ function animateCharacter() {
     }
   } else if (player.form === FORM_BIRD) {
     // Bird animation (unchanged)
-    let isFlapping = keyIsDown(87) || keyIsDown(UP_ARROW);
+    let isFlapping = keyIsDown(87) || keyIsDown(UP_ARROW) || keyIsDown(32);
     let currentAnimMode = isFlapping ? "flying" : "running";
     let maxFrames = BIRD_SPRITE.maxFrames[currentAnimMode];
     if (isFlapping || player.isMoving) {
@@ -4132,7 +4132,7 @@ function drawPlayer() {
     rect(bx, by + (barH - fill_h), barW, fill_h, 2); // fills from bottom up
   } else {
     // --- Render Bird --- (existing code unchanged)
-    let isFlapping = keyIsDown(87) || keyIsDown(UP_ARROW);
+    let isFlapping = keyIsDown(87) || keyIsDown(UP_ARROW) || keyIsDown(32);
     let animMode = isFlapping ? "flying" : "running";
     let row = BIRD_SPRITE.rows[animMode];
     let safeFrame = player.currentFrame % BIRD_SPRITE.maxFrames[animMode];
