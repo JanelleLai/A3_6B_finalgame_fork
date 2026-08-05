@@ -382,7 +382,7 @@ function damageLevel3Boss(amount) {
     stopAllGameSounds();
     level3BossDefeated = true;
     level3Boss = null;
-    startLevel3Transition("The dragon transforms the world again, sweeping you to another environment, \"Adapt or die or smt.\"", moveToLevel3EndArea);
+    startLevel3Transition("The dragon transforms the world again, \nsweeping you to another environment, \"Adapt or die or smt.\"", moveToLevel3EndArea);
     return;
   }
 
