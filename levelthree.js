@@ -270,7 +270,7 @@ function activateLevel3Barrier() {
   // This is the fish-arena boss fight starting, not the epilogue — was
   // playing epilogueMusic by mistake, so the fish phase never had chase
   // music (only the bird phase did, once that got its own fix).
-  if (chaseMusic && !chaseMusic.isPlaying()) chaseMusic.loop();
+  startChaseMusic();
 }
 
 function deactivateLevel3Barrier() {
@@ -379,7 +379,7 @@ function damageLevel3Boss(amount) {
 
   if (level3Phase === LEVEL3_PHASE.SWIM && level3Boss.hp <= 800) {
     const swimToFlyText = level3SecondEncounter
-      ? "The dragon assembles its aerial battlefield again.\n\"Taking a trip down memory lane already?\""
+      ? "The dragon assembles its aerial battlefield again.\n\"Getting bored yet?\""
       : "The dragon raises its talons and transforms the terrain\naround you into an aerial battlefield.\n\"Ever feel like a fish out of water?\" it jeers.";
     startLevel3Transition(swimToFlyText, enterLevel3FlyPhase);
     return;
@@ -390,7 +390,7 @@ function damageLevel3Boss(amount) {
     level3BossDefeated = true;
     level3Boss = null;
     const flyToEndText = level3SecondEncounter
-      ? "The terrain crumbles around you as the dragon manipulates it again.\n\"Have we had enough?\""
+      ? "The terrain crumbles around you as the dragon manipulates it.\n\"Have we had enough?\""
       : "The dragon bends the world to its will again, \nsweeping you to another environment of its creation. \n \"Enough of this.\"";
     startLevel3Transition(flyToEndText, moveToLevel3EndArea);
     return;
@@ -570,7 +570,7 @@ function moveToLevel3BirdArena() {
   // Natural SWIM->FLY transition (defeating the fish-phase boss) never
   // started chaseMusic — only the debug "bird" jump did, so beating the
   // fish boss for real left the fight silent.
-  if (chaseMusic && !chaseMusic.isPlaying()) chaseMusic.loop();
+  startChaseMusic();
 
   snapCameraToPlayer();
 }
@@ -824,10 +824,9 @@ function restartLevel3Stage() {
     // Dying in the bird phase should retry just that phase — respawn at
     // its own spawn point with a fresh boss, not the whole fight reset
     // back to the fish phase.
-    enterLevel3FlyPhase();
+    enterLevel3FlyPhase(); // -> moveToLevel3BirdArena(), which already calls startChaseMusic()
     if (level3Boss) level3Boss.hp = 800;
     player.health = player.maxHealth; // was missing — health stayed depleted across this retry
-    if (chaseMusic && !chaseMusic.isPlaying()) chaseMusic.loop();
     return;
   }
 

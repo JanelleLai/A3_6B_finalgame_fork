@@ -329,6 +329,17 @@ let dragonSpawnPoint = null; // {x,y} centroid of dragonSpawnTiles — the sleep
 let dragonTriggerRuneKey = null; // getWorldTileKey() of the specific rune that wakes it
 let dragonTriggerRunePos = null; // {x,y} world center of that rune — kept for the debug overlay below
 let chaseMusic;
+
+// Starts chaseMusic if it isn't already looping, AND resets its volume back
+// to normal — checkSafeZone() fades it to 0 without stopping it (so
+// isPlaying() stays true forever after), which otherwise left it silently
+// "playing" at 0 volume for good: the isPlaying() guard everywhere else
+// skipped re-looping it, and even where it did loop, the volume was still 0.
+function startChaseMusic() {
+  if (!chaseMusic) return;
+  if (!chaseMusic.isPlaying()) chaseMusic.loop();
+  chaseMusic.setVolume(0.25);
+}
 let epilogueMusic; // replaces humanBGsound during level 3's epilogue (IDLE/DIALOGUE/CHOICE/MIMIC) 
 let titleMusic; // Halcyon theme for the title screen
 let dragonGrowl;
@@ -757,7 +768,7 @@ function debugJumpToArea(levelId, areaKey) {
       // Real gameplay starts this when crossing the fish-arena barrier
       // (activateLevel3Barrier()) — jumping straight into the bird phase
       // skips that trigger, so it needs starting explicitly here too.
-      if (chaseMusic && !chaseMusic.isPlaying()) chaseMusic.loop();
+      startChaseMusic();
     } else if (areaKey === "end") {
       stopAllGameSounds();
       level3BossDefeated = true;
@@ -2768,7 +2779,7 @@ function wakeDragon() {
   if (!dragon || dragon.state !== DRAGON_STATE.SLEEPING) return;
   dragon.state = DRAGON_STATE.CHASING;
   chaseCamZoomTarget = 0.7;
-  if (chaseMusic && !chaseMusic.isPlaying()) chaseMusic.loop();
+  startChaseMusic();
   console.log("Dragon woke up — chase started.");
 dragonScreech.play();
 
@@ -3149,7 +3160,7 @@ function respawnFromDragon() {
       dragonPrevY = dragon.y;
       dragonNudging = false;
 
-      if (chaseMusic && !chaseMusic.isPlaying()) chaseMusic.loop();
+      startChaseMusic();
     } else {
       const cpIndex =
         fishCheckpointBeforeDragon !== -1
