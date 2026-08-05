@@ -1031,7 +1031,7 @@ function preload() {
     loadImage("assets/images/dialogue2.png"),
     loadImage("assets/images/dialogue3.png"),
   ];
-  dialogueWithOptionsImg = loadImage("assets/images/dialoguewithOptions.png");
+  dialogueWithOptionsImg = loadImage("assets/images/dialoguewithoptions.png");
   dialogueWinImg = loadImage("assets/images/dialogueWIN.png");
   dialogueLoseImg = loadImage("assets/images/dialogueLOSE.png");
   dialogueImgs2 = [
