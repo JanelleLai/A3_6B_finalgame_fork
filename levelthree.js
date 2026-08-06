@@ -894,7 +894,7 @@ function drawLevel3BossFightWorld() {
     if (player.carryingRock) {
       push();
       imageMode(CENTER);
-      if (stoneImg) image(stoneImg, player.x, player.y + 40, 80, 80);
+      if (stoneImg) image(stoneImg, player.x, player.y - 40, 80, 80);
       else { noStroke(); fill(150, 150, 150); ellipse(player.x, player.y - 30, 14, 14); }
       pop();
     }
