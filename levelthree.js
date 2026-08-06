@@ -753,7 +753,7 @@ text("No need to aim, they're homing rocks!", width / 2, height / 2 + 15);
   const fadeInDuration = 20;
   const textAlpha = constrain(map(level3RockTutorialFrames, unlockFrame, unlockFrame + fadeInDuration, 0, 255), 0, 255);
   fill(200, 200, 200, textAlpha);
-  textSize(18);
+  textSize(15);
   text("Press [Enter] to continue", width / 2, height / 2 + 50);
   pop();
 }
